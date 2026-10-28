@@ -6,6 +6,8 @@ export interface AgentTool<TInput, TOutput> {
   description: string;
   inputSchema: z.ZodType<TInput>;
   permission: ToolPermission;
+  /** Retrieval attempts consume the runtime's RAG budget, including custom algorithms. */
+  kind?: 'retrieval';
   execute(input: TInput, context: ToolContext): Promise<TOutput>;
 }
 

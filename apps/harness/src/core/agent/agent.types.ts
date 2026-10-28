@@ -7,6 +7,7 @@ export interface AgentObservation {
 
 export interface ToolCallRecord {
   tool: string;
+  kind?: 'retrieval';
   arguments: Record<string, unknown>;
   status: 'completed' | 'failed';
 }

@@ -6,4 +6,6 @@ export interface Principal {
   userId: string;
   permissions: ToolPermission[];
   admin?: boolean;
+  /** Trusted process-level code loading, separate from tenant administration. */
+  managePlugins?: boolean;
 }

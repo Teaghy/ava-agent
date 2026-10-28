@@ -4,17 +4,19 @@
 
 ## 插件与依赖
 
-| 导出                      | 插件名                | 依赖                   | 能力                 |
-| ------------------------- | --------------------- | ---------------------- | -------------------- |
-| `toolsPlugin`             | `tools`               | `storage`、`telemetry` | 提供 `ctx.tools`     |
-| `knowledgeToolPlugin`     | `knowledge-tools`     | `tools`、`rag`         | 注册两个知识检索工具 |
-| `mockBusinessToolsPlugin` | `mock-business-tools` | `tools`                | 注册五个模拟业务工具 |
+| 导出                      | 插件名                | 依赖                   | 能力                           |
+| ------------------------- | --------------------- | ---------------------- | ------------------------------ |
+| `toolsPlugin`             | `tools`               | `storage`、`telemetry` | 提供 `ctx.tools`               |
+| `knowledgeToolPlugin`     | `knowledge-tools`     | `tools`、`rag`         | 注册两个知识检索工具           |
+| `mockBusinessToolsPlugin` | `mock-business-tools` | `tools`、`guard`       | 注册五个模拟业务工具及工单校验 |
 
 三个插件均无配置参数。内置工具通过 `ctx.effect` 注册，卸载时注销。
 
 ## 注册与执行
 
 [ToolRegistry](registry.ts) 实现 [ToolService / AgentTool](../../core/tools/tool.ts)。新增工具需定义唯一名称、描述、`permission`、Zod `inputSchema` 和 `execute()`。工具目录中的 JSON Schema 由输入 schema 生成。
+
+检索工具增加 `kind: 'retrieval'`，其调用计入 Runtime 的检索预算，轨迹保留分类。自定义检索工具需同样声明；空检索结果不能作为业务操作成功的依据。
 
 执行时校验取消信号、服务端 Principal 权限和输入结构，记录 `tool.execute` span；输出 JSON 不得超过 64000 字节。已找到的工具无论成功、失败或拒绝，均记录审计状态。模型只能选择工具，无法授予权限；真实业务 Provider 还需校验设备、工单等对象归属。
 
@@ -32,6 +34,6 @@
 
 [知识工具](built-in/knowledge-search.tool.ts) 从 Principal 获取租户，发送 `rag.started/completed`，并把文档按 ID 合并进运行上下文，保留最近 15 条。查询长度为 1–2000 字符，最多指定 10 个来源。
 
-[业务工具](built-in/business-tools.ts) 即使在 live 模式下也仍返回 `mock: true`，不连接真实设备、工单或人工客服。上线实际业务前应替换该注册插件，并为写入设计幂等策略。匿名演示身份只有 READ 权限。
+[业务工具](built-in/business-tools.ts) 只在 mock 模式默认装配，可用 `demoTools: false` 关闭；live 模式不会装配这些工具。它们返回 `mock: true`，不连接真实设备、工单或人工客服。真实业务通过 `options.plugins` 注册，并为写入设计幂等策略。匿名演示身份只有 READ 权限。
 
 参见 [插件索引](../README.md)。

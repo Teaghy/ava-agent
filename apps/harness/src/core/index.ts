@@ -6,6 +6,7 @@ export type {
 } from '@ava/protocol';
 export type { Metadata, Principal } from './common.types.js';
 export type { AgentService } from './agent/agent.service.js';
+export type { AgentDependencies } from './agent/agent-dependencies.js';
 export type { DecisionService } from './decision/decision.service.js';
 export type { DecisionInput, DecisionContext } from './decision/decision.types.js';
 export type {
@@ -19,7 +20,7 @@ export type { CacheService } from './cache/cache.service.js';
 export type { EmbeddingService } from './embedding/embedding.service.js';
 export type { EventType, AgentEvent } from './event/agent-event.js';
 export type { EventStoreService } from './event/event-store.service.js';
-export type { GuardService } from './guard/guard.service.js';
+export type { GuardService, AnswerPolicy } from './guard/guard.service.js';
 export type { AuthConfig } from './http/auth.js';
 export type { HttpService } from './http/http.service.js';
 export type { StreamEvent, HttpRequest, HttpResponse, HttpHandler } from './http/http.types.js';
@@ -29,6 +30,7 @@ export type { ModelService } from './model/model.service.js';
 export type { ModelMessage, ModelRequest, ModelResponse, ModelDelta } from './model/model.types.js';
 export type { TelemetryService } from './observability/telemetry.service.js';
 export type { RagService } from './rag/rag.service.js';
+export type { KnowledgeSource, KnowledgeRegistryService } from './rag/knowledge-source.js';
 export type { KnowledgeDocument, RetrievedDocument, RagRequest } from './rag/retrieval.types.js';
 export type { RerankerService } from './reranker/reranker.service.js';
 export type { SessionService } from './session/session.service.js';

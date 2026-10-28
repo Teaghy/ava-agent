@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @ava/web... build && pnpm -r --parallel --stream dev",
+    "dev": "pnpm --filter @ava/harness... build && pnpm --filter @ava/web... build && pnpm -r --parallel --stream dev",
     "start": "pnpm --filter @ava/harness start",
-    "build": "pnpm -r build",
-    "typecheck": "pnpm --filter @ava/sdk... build && pnpm -r typecheck",
-    "test": "pnpm --filter @ava/sdk... build && pnpm -r test",
+    "build": "pnpm -r build && pnpm build:plugins",
+    "build:plugins": "tsc -p tsconfig.plugins.json",
+    "typecheck": "pnpm --filter @ava/harness... build && pnpm --filter @ava/sdk... build && tsc -p tsconfig.plugins.json --noEmit && pnpm -r typecheck",
+    "test": "pnpm --filter @ava/harness... build && pnpm --filter @ava/sdk... build && pnpm -r test",
     "test:integration": "pnpm --filter @ava/harness... build && pnpm --filter @ava/harness test:integration",
     "lint": "oxlint .",
     "format": "oxfmt .",
@@ -21,11 +22,15 @@
     "build:server": "pnpm build:harness",
     "build:web": "pnpm --filter @ava/web... build",
     "dev:harness": "pnpm --filter @ava/harness... build && pnpm --filter @ava/harness dev",
-    "build:harness": "pnpm --filter @ava/harness... build"
+    "build:harness": "pnpm --filter @ava/harness... build && pnpm build:plugins",
+    "example:retail": "pnpm --filter @ava/example-retail... build && pnpm --filter @ava/example-retail demo"
   },
   "devDependencies": {
+    "@ava/harness": "workspace:*",
+    "@types/node": "^22.20.5",
     "oxfmt": "^0.74.0",
-    "oxlint": "^1.89.0"
+    "oxlint": "^1.89.0",
+    "typescript": "^7.0.2"
   },
   "engines": {
     "node": ">=22.12.0"

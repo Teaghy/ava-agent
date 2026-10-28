@@ -1,4 +1,5 @@
 import { Context } from 'cordis';
+export type { Context, Plugin } from 'cordis';
 import type { KnowledgeSource, KnowledgeRegistryService } from '../core/rag/knowledge-source.js';
 import type * as C from '../core/index.js';
 declare module 'cordis' {

@@ -5,6 +5,7 @@ const principal = z.object({
   userId: z.string().min(1),
   permissions: z.array(z.enum(['READ', 'WRITE', 'CRITICAL'])),
   admin: z.boolean().optional(),
+  managePlugins: z.boolean().optional(),
 });
 export const configSchema = z
   .object({
@@ -12,6 +13,8 @@ export const configSchema = z
     APP_MODE: z.enum(['mock', 'live']).default('mock'),
     PORT: z.coerce.number().int().min(0).max(65535).default(3000),
     HOST: z.string().default('127.0.0.1'),
+    PLUGIN_STATE_PATH: z.string().min(1).default('data/plugins.json'),
+    PLUGIN_SAFE_MODE: bool.default(false),
     INFRA_MODE: z.enum(['memory', 'external']).optional(),
     DATABASE_URL: z.string().default('postgres://ava:ava@localhost:5432/ava'),
     REDIS_URL: z.string().default('redis://localhost:6379'),
@@ -53,8 +56,6 @@ export const configSchema = z
     RUN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(90000).default(90000),
   })
   .superRefine((c, ctx) => {
-    if (c.APP_MODE === 'live' && (!c.LLM_API_KEY || !c.EMBEDDING_API_KEY))
-      ctx.addIssue({ code: 'custom', message: 'Live mode requires LLM and embedding credentials' });
     if (
       (c.APP_MODE === 'live' || c.NODE_ENV === 'production') &&
       Object.keys(c.API_KEYS).length === 0

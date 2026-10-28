@@ -46,11 +46,17 @@ export function Settings({
           <p>
             {config?.memoryProvider === 'mem0-oss-rest'
               ? '已配置 Mem0 OSS 服务；运行时按需召回。'
-              : '当前使用内置存储，尚未启用 Mem0 OSS。'}
+              : config?.memoryProvider === 'custom'
+                ? '当前使用自定义长期记忆插件。'
+                : '当前使用内置存储，尚未启用 Mem0 OSS。'}
           </p>
         </div>
         <span className="small-tag">
-          {config?.memoryProvider === 'mem0-oss-rest' ? 'Mem0 OSS' : '内置存储'}
+          {config?.memoryProvider === 'custom'
+            ? '自定义插件'
+            : config?.memoryProvider === 'mem0-oss-rest'
+              ? 'Mem0 OSS'
+              : '内置存储'}
         </span>
       </div>
       <p className="settings-note">
@@ -63,7 +69,9 @@ export function Settings({
           <p>
             {config?.persistence === 'postgres'
               ? '对话记录保存在服务端数据库。'
-              : '当前为内存模式，服务重启后记录将清空。'}
+              : config?.persistence === 'custom'
+                ? '会话由自定义存储插件管理，保存方式由服务端配置。'
+                : '当前为内存模式，服务重启后记录将清空。'}
           </p>
         </div>
       </div>

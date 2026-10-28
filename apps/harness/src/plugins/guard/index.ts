@@ -1,12 +1,22 @@
 import type { Context } from 'cordis';
-import type { GuardService } from '../../core/guard/guard.service.js';
-import { AppError } from '../../core/errors.js';
+import type { AnswerPolicy, GuardService } from '../../core/guard/guard.service.js';
+import { AppError, checkAbort } from '../../core/errors.js';
 export const guardPlugin = {
   name: 'answer-guard',
   provide: ['guard'],
   apply(ctx: Context) {
+    const policies = new Map<string, AnswerPolicy>();
     const guard: GuardService = {
-      validate(answer, citations, state) {
+      register(policy) {
+        if (policies.has(policy.name))
+          throw new AppError('DUPLICATE_POLICY', `校验策略 ${policy.name} 已注册。`);
+        policies.set(policy.name, policy);
+        return () => {
+          if (policies.get(policy.name) === policy) policies.delete(policy.name);
+        };
+      },
+      async validate(answer, citations, state, signal) {
+        checkAbort(signal);
         for (const citation of citations) {
           const doc = state.retrievedDocuments.find(
             (d) => d.id === citation.chunkId && d.documentId === citation.documentId,
@@ -20,16 +30,20 @@ export const guardPlugin = {
           !state.retrievedDocuments.length &&
           !state.observations.some(
             (o) =>
-              !['knowledge_search', 'case_search'].includes(o.tool) &&
-              !('error' in Object(o.result)),
+              state.toolCalls.some(
+                (call) =>
+                  call.tool === o.tool && call.status === 'completed' && call.kind !== 'retrieval',
+              ) && !('error' in Object(o.result)),
           )
         )
           throw new AppError('LOW_CONFIDENCE', '缺乏足够依据，请补充信息或转人工。', 422);
-        if (
-          /工单.{0,6}(已创建|创建成功)/.test(answer) &&
-          !state.toolCalls.some((t) => t.tool === 'create_ticket' && t.status === 'completed')
-        )
-          throw new AppError('TOOL_INCONSISTENT', '未执行创建工单，不能宣称已创建。', 422);
+        const selectedPolicies = [...policies.values()];
+        for (const policy of selectedPolicies) {
+          checkAbort(signal);
+          const snapshot = structuredClone({ citations, state });
+          await policy.validate(answer, snapshot.citations, snapshot.state, signal);
+        }
+        checkAbort(signal);
       },
     };
     ctx.provide('guard', guard);

@@ -10,6 +10,7 @@ import {
 } from '@ava/protocol';
 import { streamChat } from './chat.js';
 import { createKnowledgeClient } from './knowledge.js';
+import { createPluginClient } from './plugins.js';
 
 export type Request = (path: string, init?: RequestInit) => Promise<Response>;
 export interface ClientOptions {
@@ -20,6 +21,7 @@ export interface ClientOptions {
 export class AgentClient {
   readonly chat;
   readonly knowledge;
+  readonly plugins;
   private readonly request: Request;
   constructor(options: ClientOptions = {}) {
     const baseURL = (options.baseURL ?? '').replace(/\/$/, '');
@@ -44,6 +46,7 @@ export class AgentClient {
         streamChat(this.request, input, signal),
     };
     this.knowledge = createKnowledgeClient(this.request);
+    this.plugins = createPluginClient(this.request);
   }
   async config(signal?: AbortSignal) {
     return configSchema.parse(

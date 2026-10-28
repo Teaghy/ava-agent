@@ -5,8 +5,8 @@
 ## 服务与依赖
 
 - 提供 `ctx.agent`（[AgentService](../../core/agent/agent.service.ts)）。
-- 必需：`decision`、`knowledge`、`tools`、`sessions`、`eventStore`、`cache`、`telemetry`。
-- 可选：`memory`、`guard`；默认装配中两者均启用。
+- 必需：`decision`、`knowledge`、`tools`、`sessions`、`eventStore`、`cache`、`telemetry`、`guard`。
+- 可选：`memory`；默认装配中启用。
 
 ## 配置
 
@@ -28,3 +28,5 @@
 `final_answer` 经 Guard 校验后保存并分段发送 `answer.delta`；当前不是模型 token 实时直传。`ask_user` 用于补充信息。检查点与回放用于诊断，不会自动恢复执行或重试业务写入。
 
 模型与提示词配置属于 [decision-main-model](../decision-main-model/README.md)，Agent 循环不直接调用模型。参见 [插件索引](../README.md)。
+
+Runtime 接收 `AgentDependencies`，由插件入口从 Cordis 注入。Decision 的输入为快照，修改它不能改写工具授权或运行证据。检索限额根据工具 `kind: 'retrieval'` 判定，支持自定义名称。`stop()` 取消并等待正在执行的任务，随后旧服务对象拒绝新运行；插件卸载时会调用该方法。所有外部调用应响应取消信号。

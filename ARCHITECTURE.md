@@ -110,9 +110,15 @@ packages/
 
 依赖方向：Web/Admin → SDK → Protocol/Shared；Harness → Protocol/Shared。Core 无 Provider SDK；插件通过 Cordis Context 组合，插件注册与服务实现分开。API 参数、输出和客户端事件均保留 Zod 校验。
 
+开发者公开入口为 `@ava/harness`（程序化装配）与 `@ava/harness/plugin`（插件领域契约）；声明文件随 Harness 构建输出。`createHarness` 的 `providers` 在启动前选择唯一服务实现，`plugins` 追加能力；具体槽位和约定见 [插件开发文档](docs/plugin-development.md)。`examples/retail` 为独立 workspace 包，仅通过公开入口接入规则决策、订单工具、知识源与答案审核。没有新增第二套 DI 或插件调度器。
+
+日常启动读取根 `ava.config.ts` / `.ava/ava.config.js` 的固定装配。Web `#/plugins` 使用 SDK 管理独立本地 JS 插件；平台权限为 `admin && managePlugins`。`plugin-manager` 维护原生 Cordis 安装句柄、默认安装函数与成功配置的原子持久化，串行切换时暂停/取消并等待 Agent，失败回退；不响应释放则保持执行门禁关闭并要求重启。底座不管理外部插件源码和构建，不提供同进程代码沙箱。管理契约见 [Web 插件管理](docs/plugin-management.md)。
+
 决策链路：Agent Runtime → `ctx.decision` → 默认 `decision-main-model` → `ctx.model`。Runtime 只管理执行、预算、权限、Guard 和轨迹；默认决策 Provider 使用 ContextBuilder 构建模型上下文。Core 的 `decision/` 明确定义服务、输入/上下文和输出 schema；原 `agent/agent-decision.ts` 保留为兼容导出。
 
-当前保留主模型决策行为，不增加额外模型调用。专用模型、规则和 Hybrid 可作为后续 Decision Provider 替换；粗粒度 Domain 路由是另一项独立能力，尚未实现 `ctx.router`。知识检索仍是 Tool，模型或规则返回的工具选择都不能绕过服务端权限。
+默认 Runtime 通过 `AgentDependencies` 接收领域接口，不依赖 Cordis Context。决策输入和行业校验输入为快照；Runtime 保留权威状态。Guard 为强依赖，基础校验之后顺序等待可释放的行业策略。工具的 `kind: 'retrieval'` 统一控制检索预算与证据分类，支持自定义工具名。停止先取消并等待当前运行，再释放基础设施。
+
+当前默认保留主模型决策行为，不增加额外模型调用。零售示例已提供规则 Decision Provider；专用模型和 Hybrid 可按同一契约替换。粗粒度 Domain 路由是另一项独立能力，尚未实现 `ctx.router`。知识检索仍是 Tool，模型或规则返回的工具选择都不能绕过服务端权限。
 
 知识链路：Agent → Tool → RAG → `ctx.knowledge` → KnowledgeSource → Vector/SQL/API。Registry 默认检索 `default !== false` 的来源，也可用 `sources` 选择。`cases` 仅在显式选择时使用，避免与通用来源重复检索。每个外部来源应返回全局唯一的 document/chunk ID，并在访问远端系统时落实对象级授权；Registry 再校验 tenant 和 metadata。
 

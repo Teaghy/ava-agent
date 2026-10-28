@@ -23,6 +23,7 @@ export class ToolRegistry implements ToolService {
         name: tool.name,
         description: tool.description,
         permission: tool.permission,
+        kind: tool.kind,
         parameters: z.toJSONSchema(tool.inputSchema),
       },
       execute: async (input, context) => tool.execute(tool.inputSchema.parse(input), context),

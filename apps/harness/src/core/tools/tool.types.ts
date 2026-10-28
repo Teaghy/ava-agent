@@ -5,6 +5,7 @@ export interface ToolDescriptor {
   description: string;
   permission: ToolPermission;
   parameters: unknown;
+  kind?: 'retrieval';
 }
 
 export interface AuditLog {

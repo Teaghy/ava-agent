@@ -5,3 +5,4 @@ export * from './chat/events.js';
 export * from './chat/request.js';
 export * from './knowledge/index.js';
 export * from './error/index.js';
+export * from './plugins/index.js';

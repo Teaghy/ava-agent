@@ -9,10 +9,11 @@ export const knowledgeToolPlugin = {
       ctx.effect(() =>
         ctx.tools.register({
           name,
+          kind: 'retrieval',
           description:
             name === 'case_search'
               ? '检索历史客服案例。'
-              : '检索设备知识库；涉及设备故障的答案必须先检索并引用来源。',
+              : '检索客服知识库；基于知识的答案必须先检索并引用来源。',
           permission: 'READ',
           inputSchema: z
             .object({

@@ -1,11 +1,23 @@
 import type { Context } from 'cordis';
 import { z } from 'zod';
 
-import { checkAbort } from '../../../core/errors.js';
+import { AppError, checkAbort } from '../../../core/errors.js';
 export const mockBusinessToolsPlugin = {
   name: 'mock-business-tools',
-  inject: ['tools'],
+  inject: ['tools', 'guard'],
   apply(ctx: Context) {
+    ctx.effect(() =>
+      ctx.guard.register({
+        name: 'demo-ticket-result',
+        validate(answer, _citations, state) {
+          if (
+            /工单.{0,6}(已创建|创建成功)/.test(answer) &&
+            !state.toolCalls.some((t) => t.tool === 'create_ticket' && t.status === 'completed')
+          )
+            throw new AppError('TOOL_INCONSISTENT', '未执行创建工单，不能宣称已创建。', 422);
+        },
+      }),
+    );
     for (const name of ['device_query', 'device_status', 'ticket_query']) {
       ctx.effect(() =>
         ctx.tools.register({

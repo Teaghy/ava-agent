@@ -13,9 +13,24 @@ export const agentLoopPlugin = {
     cache: { required: true },
     telemetry: { required: true },
     memory: { required: false },
-    guard: { required: false },
+    guard: { required: true },
   },
   apply(ctx: Context, c: AgentConfig) {
-    ctx.provide('agent', createAgentService(ctx, c));
+    const service = createAgentService(
+      {
+        decision: ctx.decision,
+        knowledge: ctx.knowledge,
+        tools: ctx.tools,
+        sessions: ctx.sessions,
+        eventStore: ctx.eventStore,
+        cache: ctx.cache,
+        telemetry: ctx.telemetry,
+        guard: ctx.guard,
+        memory: ctx.memory,
+      },
+      c,
+    );
+    ctx.effect(() => () => service.stop());
+    ctx.provide('agent', service);
   },
 };

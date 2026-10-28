@@ -1,6 +1,6 @@
 # Ava Agent Harness
 
-以 **Cordis** 为插件内核、自研有限步数 **ReAct Runtime** 为执行核心、**H3** 为 HTTP/SSE Transport 的 TypeScript 客服 Agentic RAG 基础项目。
+以 **Cordis** 为插件内核、自研有限步数 **ReAct Runtime** 为执行核心、**H3** 为 HTTP/SSE Transport 的 TypeScript 客服 Agentic RAG 底座。提供完整默认流程，行业知识、业务工具、决策算法和检索方法可通过插件接入。
 
 Node.js **22.12+**、pnpm、ESM、TypeScript strict；测试使用 **Vitest**，lint 使用 **oxlint**，格式化使用 **oxfmt**。
 
@@ -15,7 +15,9 @@ pnpm dev
 
 Web 页面支持发送问题、Markdown 回答、SSE 状态、停止生成、新建/搜索/恢复会话、查看知识引用，以及移动端布局。服务设置展示当前长期记忆和会话存储方式；需要认证时可输入访问 Token，Token 只保留在当前页面内存中。
 
-`pnpm dev` 构建共享包和前端后，由 pnpm 监听 Harness、Web、Protocol、SDK、Shared 的变更。需要 Vite HMR 时分别运行 `pnpm dev:harness` 和 `pnpm dev:web`，浏览器打开 `http://127.0.0.1:5173`。
+`pnpm dev` 构建 Harness、共享包和前端后，由 pnpm 监听 Harness、Web、Protocol、SDK、Shared 的变更。需要 Vite HMR 时分别运行 `pnpm dev:harness` 和 `pnpm dev:web`，浏览器打开 `http://127.0.0.1:5173`。
+
+**可视化接入插件：** 点击聊天侧栏“插件管理”，或打开 `http://127.0.0.1:3000/#/plugins`。支持加载独立项目已构建的本地 JS，登记、配置、启停和切换算法 Provider，重启后恢复。操作需要 `admin: true` 且 `managePlugins: true` 的平台 Token。配置权限、项目示例与故障恢复见 [Web 插件管理](docs/plugin-management.md)。
 
 ### pnpm monorepo
 
@@ -41,6 +43,9 @@ packages/
   shared/                     # @ava/shared：公共错误与安全 URL 工具
   config/                     # @ava/config：共用 TypeScript 配置
 pnpm-workspace.yaml
+ava.config.ts                 # 固定应用装配；dev/start 自动读取对应源/构建配置
+extensions/                   # 可选的应用内插件；独立项目不需要放在这里
+data/plugins.json             # Web 管理登记与参数，默认不提交
 tsconfig.base.json            # 引用 packages/config 中的配置
 .env                          # 配置保留在根目录，不提交
 ```
@@ -48,6 +53,8 @@ tsconfig.base.json            # 引用 packages/config 中的配置
 完整 Harness 内部目录和依赖边界见 [ARCHITECTURE.md](ARCHITECTURE.md)。Web 是独立客户端，使用 `@ava/sdk`，不依赖 Harness 源码。`web-static` 是可选的静态资源托管插件，只托管 Web 构建产物并返回公开配置；它不管理 React 页面或前端生命周期。
 
 每个插件的职责、服务依赖、配置、生命周期与实现限制见 [插件文档索引](apps/harness/src/plugins/README.md)。
+
+开发者接入见 [插件开发文档](docs/plugin-development.md)：通过公开的 `@ava/harness` / `@ava/harness/plugin` 入口装配，不需要修改 bootstrap。`providers` 明确替换实现，`plugins` 追加知识源、工具和行业校验。`pnpm example:retail` 运行独立零售示例：规则决策、订单查询、自定义知识源和答案审核，无需外部基础设施。默认设备资料仅为 mock 演示。
 
 各包独立声明依赖，通过 `workspace:*` 连接。`pnpm build` 按依赖图构建；`pnpm test` 和 `pnpm typecheck` 会先构建共享包。Admin 只预留结构，不参与 dev/build。`packages/ui` 暂未建立，待 Web/Admin 出现实际共用组件后再提取。工具仍使用 Vitest、oxlint、oxfmt，不引入 ESLint 或额外任务调度框架。
 
@@ -59,7 +66,7 @@ pnpm build:harness
 pnpm build:web
 ```
 
-单独运行子包检查前，先运行 `pnpm --filter @ava/sdk... build` 构建共享依赖。原 `dev:server`、`build:server` 根命令保留为 Harness 命令的别名。部署时保留 `apps/harness/dist`、`apps/web/dist`、`packages/protocol/dist`、`packages/shared/dist` 及对应 workspace 依赖，使用 `pnpm start`。仅部署 API 时可以省略 Web 产物。
+单独运行子包检查前，先运行 `pnpm --filter @ava/sdk... build` 构建共享依赖。原 `dev:server`、`build:server` 根命令保留为 Harness 命令的别名。部署时保留 `apps/harness/dist`、`apps/web/dist`、`packages/protocol/dist`、`packages/shared/dist` 及对应 workspace 依赖；使用根应用配置时还要保留 `.ava/` 构建产物，Web 插件登记文件和独立插件运行依赖也应持久保留。运行 `pnpm start`。仅部署 API 时可以省略 Web 产物。
 
 ```bash
 curl -N http://localhost:3000/api/v1/chat \
@@ -159,7 +166,7 @@ flowchart TD
 | tools                             | `ctx.tools`                            | storage, telemetry                                                                     |
 | rag                               | `ctx.rag`                              | knowledge, telemetry；可选 reranker                                                    |
 | knowledge-tools                   | 注册检索工具                           | tools, rag                                                                             |
-| agent-loop                        | `ctx.agent`                            | decision, knowledge, tools, sessions, eventStore, cache, telemetry；可选 memory, guard |
+| agent-loop                        | `ctx.agent`                            | decision, knowledge, tools, sessions, eventStore, cache, telemetry, guard；可选 memory |
 | http-h3                           | `ctx.http`                             | 无 Agent 依赖                                                                          |
 | chat-api                          | Chat 路由                              | http, agent, sessions, cache                                                           |
 | knowledge-api                     | 导入及轨迹路由                         | http, rag, eventStore                                                                  |
@@ -190,9 +197,9 @@ Agent Runtime → ctx.decision → decision-main-model → ctx.model
 
 决策输出仍为 `tool_call`、`ask_user`、`final_answer`（含引用）。知识检索通过 `tool_call: knowledge_search/case_search` 执行，不另建一条绕过工具权限与审计的 RAG 通道。即使替换为自定义 Provider，Runtime 也会重新用严格 schema 校验结果，拒绝 reasoning 等额外字段，并继续执行 Guard、调用预算、工具权限和轨迹记录。
 
-默认没有新增模型请求，也未新增 Router Model、规则链或 Hybrid fallback。当前只实现一个 Provider，因此不提供指向尚未实现插件的 `DECISION_PROVIDER=router-model/hybrid` 配置。
+默认没有新增模型请求，也未新增 Router Model 或 Hybrid fallback。默认装配主模型决策，独立零售示例提供无模型的规则决策；不提供指向尚未实现插件的 `DECISION_PROVIDER=router-model/hybrid` 配置。
 
-后续添加独立决策模型时，实现 `DecisionService` 并以 Cordis `provide: ['decision']` 注册，在 Bootstrap 替换默认 `decision-main-model` 插件即可，Agent Loop 无需更改。规则 Provider 可以完全不注入 `model`；专用模型 Provider 可以使用自己的 ModelService。粗粒度业务路由（Domain/Tool/Knowledge selection）应另设 `ctx.router`，与每一步 ReAct 决策分开；路由结果只能缩小现有能力范围，不能授予服务端权限。
+添加独立决策模型时，实现 `DecisionService` 并以 Cordis `provide: ['decision']` 声明，通过 `createHarness(config, { providers: { decision: myPlugin } })` 替换默认实现，Agent Loop 无需更改。规则 Provider 可同时设置 `model: false`，无需模型服务；专用模型 Provider 可以使用自己的 ModelService。输入数据为快照，算法不能通过改写输入来更新运行证据和工具授权。粗粒度业务路由（Domain/Tool/Knowledge selection）尚未提供统一接口，路由结果不能授予服务端权限。
 
 链路观测分别记录 `decision.decide` / `decision_latency_ms` 与默认 Provider 的 `model.decision` / `model_latency_ms`，以免把规则决策误记成模型调用。
 
@@ -278,7 +285,7 @@ curl http://localhost:3000/api/v1/runs/replay \
 ## How to Add a Tool
 
 ```ts
-import type { Context } from 'cordis';
+import type { Context } from '@ava/harness/plugin';
 import { z } from 'zod';
 
 export const myToolPlugin = {
@@ -302,11 +309,11 @@ export const myToolPlugin = {
 };
 ```
 
-在 Bootstrap 注册插件即可，无需修改 Agent。第一阶段 `device_query`、`device_status`、`ticket_query`、`create_ticket`、`human_handoff` 使用显式 `mock: true` 的业务 Provider，即使模型为 live 也不会操作真实设备或工单。
+通过 `createHarness(config, { plugins: [myToolPlugin] })` 注册，无需修改 Agent。默认 mock 模式装配五个显式 `mock: true` 的演示业务工具，可用 `demoTools: false` 关闭；live 模式不装配这些工具。真实业务插件需自行连接外部系统并校验对象归属。自定义检索工具声明 `kind: 'retrieval'`，受统一检索预算限制。
 
 ## How to Add a Model Provider
 
-实现 `ModelService.chat/stream/structuredOutput`，插件 `provide: ['model']`，使用 `ctx.provide('model', implementation)`，在 Bootstrap 替换 model-openai。必须保留输出 schema 校验、请求取消和超时；不能将模型原始 reasoning 内容传入轨迹。
+实现 `ModelService.chat/stream/structuredOutput`，插件 `provide: ['model']`，使用 `ctx.provide('model', implementation)`，通过 `providers.model` 替换默认实现。必须保留输出 schema 校验、请求取消和超时；不能将模型原始 reasoning 内容传入轨迹。
 
 ## How to Add a Memory Provider
 
@@ -314,7 +321,7 @@ export const myToolPlugin = {
 
 ## How to Add a Knowledge Source
 
-实现 `core/rag/knowledge-source.ts` 的 `KnowledgeSource`，在新的 Cordis 插件中声明 `inject: ['knowledge']`，使用 `ctx.effect(() => ctx.knowledge.register(source))` 注册。默认参与检索；只供特定工具使用的来源设 `default: false`。可通过 `knowledge_search` 的 `sources` 参数选择注册名称。案例工具固定选择 `cases` 来源。
+从 `@ava/harness/plugin` 导入 `KnowledgeSource` 类型，在新的 Cordis 插件中声明 `inject: ['knowledge']`，使用 `ctx.effect(() => ctx.knowledge.register(source))` 注册，再放入 `options.plugins`。默认参与检索；只供特定工具使用的来源设 `default: false`。可通过 `knowledge_search` 的 `sources` 参数选择注册名称。案例工具固定选择 `cases` 来源。
 
 来源负责实际数据访问、对象级权限、metadata filter、全局唯一分片 ID；Registry 再次检查租户边界。外部来源不需要写入本地 PostgreSQL。Qdrant 来源保留原 SQL 发布检查，避免中断导入的孤立向量进入答案。新来源无需修改 Agent Runtime。
 
@@ -332,11 +339,11 @@ for await (const event of client.chat.stream({
 }
 ```
 
-SDK 同时提供 `config()`、`conversations()`、`history()` 和 `knowledge.ingest()`，支持 AbortSignal。身份由 Token 决定，管理接口仍由 Harness 校验管理员权限。HTTP 错误与 SSE error 抛出异常；缺失 answer.completed 被视为流中断。
+SDK 同时提供 `config()`、`conversations()`、`history()`、`knowledge.ingest()` 和 `plugins.list/install/action/configure()`，支持 AbortSignal。身份由 Token 决定，管理接口仍由 Harness 校验对应权限。HTTP 错误与 SSE error 抛出异常；缺失 answer.completed 被视为流中断。
 
 ## How to Add a Vector Store
 
-实现 `VectorService.search/upsert/delete` 并提供 `vector`。必须在服务端存储层执行 tenant 与 metadata filter，并校验 Embedding 维度。替换 vector-qdrant 即可，RAG 不导入 Provider SDK。
+实现 `VectorService.search/upsert/delete` 并提供 `vector`，通过 `providers.vector` 替换。必须在服务端存储层执行 tenant 与 metadata filter，并校验 Embedding 维度。RAG 不导入 Provider SDK。
 
 ## How to Add an API Plugin
 
