@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1793164832697,
+      "tag": "0000_robust_carmella_unuscione",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793165063092,
+      "tag": "0001_append_only_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793166152562,
+      "tag": "0002_boring_luminals",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@ava/admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@ava/protocol": "workspace:*",
+    "@ava/sdk": "workspace:*"
+  }
+}

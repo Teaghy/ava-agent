@@ -1,0 +1,30 @@
+# agent-loop
+
+执行客服 Agent 的逐步决策与工具调用循环。入口为 [agentLoopPlugin](index.ts)，实现位于 [react-loop.ts](react-loop.ts)。
+
+## 服务与依赖
+
+- 提供 `ctx.agent`（[AgentService](../../core/agent/agent.service.ts)）。
+- 必需：`decision`、`knowledge`、`tools`、`sessions`、`eventStore`、`cache`、`telemetry`。
+- 可选：`memory`、`guard`；默认装配中两者均启用。
+
+## 配置
+
+参数由 [bootstrap](../../bootstrap/plugins.ts) 注入：
+
+| 插件参数         | 环境变量           | 默认值 |
+| ---------------- | ------------------ | ------ |
+| `maxSteps`       | `MAX_AGENT_STEPS`  | 8      |
+| `maxToolCalls`   | `MAX_TOOL_CALLS`   | 10     |
+| `maxRagSearches` | `MAX_RAG_SEARCHES` | 3      |
+| `runTimeoutMs`   | `RUN_TIMEOUT_MS`   | 90000  |
+
+## 执行行为
+
+`run(input, emit)` 校验会话归属、获取会话锁，加载近期消息、摘要及可用长期记忆；每一步调用 `decision.decide()`，执行工具或结束回答，并追加轨迹及检查点。工具目录按当前用户权限过滤，实际执行仍由工具注册表校验。
+
+同一会话使用 120 秒租约锁；执行超时上限为 90 秒。达到步骤、工具或检索限额会停止运行。客户端断开会传播取消信号，结束时释放属于当前运行的锁。可选记忆读取失败会记录日志，不阻断正常回答。
+
+`final_answer` 经 Guard 校验后保存并分段发送 `answer.delta`；当前不是模型 token 实时直传。`ask_user` 用于补充信息。检查点与回放用于诊断，不会自动恢复执行或重试业务写入。
+
+模型与提示词配置属于 [decision-main-model](../decision-main-model/README.md)，Agent 循环不直接调用模型。参见 [插件索引](../README.md)。
