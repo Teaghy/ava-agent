@@ -7,6 +7,7 @@ import type { AgentResult } from '@ava/protocol';
 import type { MemoryItem } from '../../core/memory/memory.types.js';
 import { decisionSchema } from '../../core/decision/decision.schema.js';
 import { AppError, publicError, checkAbort } from '../../core/errors.js';
+import { ToolAuditError } from '../../core/tools/tool-audit-error.js';
 export interface AgentConfig {
   maxSteps: number;
   maxToolCalls: number;
@@ -18,6 +19,7 @@ export interface AgentConfig {
 export function createAgentService(ctx: AgentDependencies, c: AgentConfig): AgentService {
   const lifetime = new AbortController();
   const active = new Set<Promise<AgentResult>>();
+  const summaries = new Map<string, Promise<void>>();
   const service: AgentService = {
     async run(input, emit) {
       if (c.isPaused?.())
@@ -34,9 +36,30 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
     async stop() {
       lifetime.abort();
       await Promise.allSettled(active);
+      await Promise.allSettled(summaries.values());
     },
   };
   return service;
+
+  function summarize(conversationId: string, runId: string): void {
+    // shortcut: summary ordering is local; use a shared queue when running multiple workers.
+    const pending = (summaries.get(conversationId) ?? Promise.resolve())
+      .then(() => {
+        checkAbort(lifetime.signal);
+        return ctx.sessions.summarize(conversationId, lifetime.signal);
+      })
+      .catch(() => {
+        if (!lifetime.signal.aborted)
+          ctx.telemetry.log(
+            { event: 'summary.failed', run_id: runId, conversation_id: conversationId },
+            'optional conversation summary unavailable',
+          );
+      })
+      .finally(() => {
+        if (summaries.get(conversationId) === pending) summaries.delete(conversationId);
+      });
+    summaries.set(conversationId, pending);
+  }
 
   async function execute(
     input: AgentInput,
@@ -152,8 +175,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             if (decision.type !== 'tool_call') {
               const answer = decision.type === 'ask_user' ? decision.question : decision.answer;
               const citations = decision.type === 'final_answer' ? (decision.citations ?? []) : [];
-              if (decision.type === 'final_answer')
-                await ctx.guard.validate(answer, citations, state, signal);
+              await ctx.guard.validate(answer, citations, state, signal, decision.type);
               checkAbort(signal);
               await ctx.sessions.add(state.conversationId, 'assistant', answer, {
                 citations,
@@ -162,7 +184,6 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
               await append('assistant_message', { answer, citations });
               state.status = 'completed';
               await ctx.sessions.checkpoint(state, tenant);
-              await ctx.sessions.summarize(state.conversationId, signal);
               const result: AgentResult = {
                 runId: state.runId,
                 answer,
@@ -175,6 +196,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
                 await emit({ type: 'answer.delta', data: { text } });
               }
               await emit({ type: 'answer.completed', data: result });
+              summarize(state.conversationId, state.runId);
               return result;
             }
             if (state.toolCalls.length >= c.maxToolCalls)
@@ -190,6 +212,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             await emit({ type: 'tool.started', data: { tool: decision.tool } });
             let result: unknown;
             let status: 'completed' | 'failed' = 'completed';
+            let auditFailure: ToolAuditError | undefined;
             try {
               result = await ctx.tools.execute(decision.tool, decision.arguments, {
                 principal: input.principal,
@@ -198,9 +221,15 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
                 emit,
               });
             } catch (error) {
-              checkAbort(signal);
-              status = 'failed';
-              result = { error: publicError(error) };
+              if (error instanceof ToolAuditError) {
+                auditFailure = error;
+                status = error.audit.status === 'completed' ? 'completed' : 'failed';
+                result = status === 'completed' ? error.result : { error: publicError(error) };
+              } else {
+                checkAbort(signal);
+                status = 'failed';
+                result = { error: publicError(error) };
+              }
             }
             state.toolCalls.push({
               tool: decision.tool,
@@ -209,6 +238,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
               status,
             });
             state.observations.push({ tool: decision.tool, result });
+            if (auditFailure) throw auditFailure;
             state.status = 'running';
             await append('tool_result', { tool: decision.tool, result, status });
             if (isRag)
@@ -221,7 +251,8 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
           throw new AppError('STEP_LIMIT', 'Agent 执行步数已达上限，请补充信息或转人工。', 422);
         } catch (error) {
           state.status = 'failed';
-          const safe = signal.aborted
+          const cancelled = signal.aborted && !(error instanceof ToolAuditError);
+          const safe = cancelled
             ? { code: 'RUN_CANCELLED', message: '请求已取消或超时。' }
             : publicError(error);
           if (opened) {
@@ -236,7 +267,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             }
           }
           ctx.telemetry.log({ run_id: state.runId, error_code: safe.code }, 'agent failed');
-          throw signal.aborted ? new AppError(safe.code, safe.message, 408) : error;
+          throw cancelled ? new AppError(safe.code, safe.message, 408) : error;
         } finally {
           await ctx.cache.release(lockKey, state.runId);
         }

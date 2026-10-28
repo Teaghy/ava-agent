@@ -21,6 +21,7 @@ declare module 'cordis' {
     eventStore: C.EventStoreService;
     guard: C.GuardService;
     http: C.HttpService;
+    ops: C.HttpService;
     telemetry: C.TelemetryService;
   }
   interface Events {

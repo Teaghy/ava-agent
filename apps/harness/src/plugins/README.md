@@ -19,6 +19,7 @@
 | 工具与校验 | [tools](tools/README.md)                             | `tools`，知识工具、模拟业务工具                         |
 | 工具与校验 | [guard](guard/README.md)                             | `guard`，答案依据与引用校验                             |
 | 插件管理   | [plugin-manager](plugin-manager/README.md)           | 本地 JS 的登记、参数、启停、Provider 切换与平台管理 API |
+| 插件维护   | [ops-console](ops-console/README.md)                 | `ops`，默认关闭的独立维护监听、界面与维护鉴权           |
 | 会话与记忆 | [sessions](sessions/README.md)                       | `sessions`，消息、摘要、运行检查点                      |
 | 会话与记忆 | [event-store](event-store/README.md)                 | `eventStore`，事件追加与回放                            |
 | 会话与记忆 | [memory](memory/README.md)                           | `memory`，基于 Storage 的长期记忆                       |

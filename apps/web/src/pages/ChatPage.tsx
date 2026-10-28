@@ -9,7 +9,6 @@ import {
   Menu,
   MessageSquare,
   Plus,
-  Puzzle,
   Search,
   Settings2,
   ShieldCheck,
@@ -52,7 +51,7 @@ const starters = [
 const newId = () => crypto.randomUUID();
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : '连接出现问题，请稍后重试。';
-export function ChatPage({ visible = true }: { visible?: boolean }) {
+export function ChatPage() {
   const [config, setConfig] = useState<ClientConfig>();
   const [connectError, setConnectError] = useState('');
   const [reload, setReload] = useState(0);
@@ -79,7 +78,6 @@ export function ChatPage({ visible = true }: { visible?: boolean }) {
   const maxLength = config?.maxMessageLength ?? 2000;
 
   useEffect(() => {
-    if (!visible) return;
     const controller = new AbortController();
     setConnectError('');
     void loadClientConfig(controller.signal)
@@ -88,7 +86,7 @@ export function ChatPage({ visible = true }: { visible?: boolean }) {
         if (!controller.signal.aborted) setConnectError(errorText(error));
       });
     return () => controller.abort();
-  }, [reload, visible]);
+  }, [reload]);
   const refresh = useCallback(async () => {
     if (!config || (config.authRequired && !token)) return;
     const version = identityVersion.current;
@@ -325,11 +323,6 @@ export function ChatPage({ visible = true }: { visible?: boolean }) {
               <p className="history-empty">没有找到匹配的对话。</p>
             )}
         </nav>
-        <a className="history-item" href="#/plugins">
-          <Puzzle size={16} />
-          <span>插件管理</span>
-          <ArrowUpRight size={14} />
-        </a>
         <div className="sidebar-bottom">
           <div className="workspace-icon">
             <ShieldCheck size={19} />

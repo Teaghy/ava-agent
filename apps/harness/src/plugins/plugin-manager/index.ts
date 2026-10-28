@@ -7,7 +7,7 @@ import type { PluginManager } from './manager.js';
 
 export const pluginManagerApiPlugin = {
   name: 'plugin-manager-api',
-  inject: ['http'],
+  inject: ['ops'],
   apply(ctx: Context, config: AuthConfig & { manager: PluginManager }) {
     const authorize = (request: HttpRequest) => {
       const principal = authenticate(request, config);
@@ -15,13 +15,13 @@ export const pluginManagerApiPlugin = {
         throw new AppError('FORBIDDEN', '此接口需要平台插件管理权限。', 403);
     };
     ctx.effect(() =>
-      ctx.http.get('/api/v1/plugins', async (request) => {
+      ctx.ops.get('/api/v1/plugins', async (request) => {
         authorize(request);
         return { body: config.manager.snapshot() };
       }),
     );
     ctx.effect(() =>
-      ctx.http.post('/api/v1/plugins/install', async (request) => {
+      ctx.ops.post('/api/v1/plugins/install', async (request) => {
         authorize(request);
         const input = pluginInstallSchema.safeParse(await request.body());
         if (!input.success) throw new AppError('INVALID_PLUGIN_REQUEST', '插件注册参数无效。', 400);
@@ -29,7 +29,7 @@ export const pluginManagerApiPlugin = {
       }),
     );
     ctx.effect(() =>
-      ctx.http.post('/api/v1/plugins/action', async (request) => {
+      ctx.ops.post('/api/v1/plugins/action', async (request) => {
         authorize(request);
         const input = pluginActionSchema.safeParse(await request.body());
         if (!input.success) throw new AppError('INVALID_PLUGIN_REQUEST', '插件操作参数无效。', 400);
@@ -37,7 +37,7 @@ export const pluginManagerApiPlugin = {
       }),
     );
     ctx.effect(() =>
-      ctx.http.post('/api/v1/plugins/configure', async (request) => {
+      ctx.ops.post('/api/v1/plugins/configure', async (request) => {
         authorize(request);
         const input = pluginConfigureSchema.safeParse(await request.body());
         if (!input.success) throw new AppError('INVALID_PLUGIN_REQUEST', '插件配置参数无效。', 400);

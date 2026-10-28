@@ -167,13 +167,18 @@ export class H3HttpService implements HttpService {
     this.server = server;
     server.requestTimeout = 100000;
     server.headersTimeout = 10000;
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(port, host, () => {
-        server.off('error', reject);
-        resolve();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(port, host, () => {
+          server.off('error', reject);
+          resolve();
+        });
       });
-    });
+    } catch (error) {
+      this.server = undefined;
+      throw error;
+    }
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('No HTTP address');
     return address.port;

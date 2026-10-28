@@ -7,12 +7,30 @@ const principal = z.object({
   admin: z.boolean().optional(),
   managePlugins: z.boolean().optional(),
 });
+const apiKeys = z
+  .string()
+  .default('{}')
+  .transform((s, ctx) => {
+    try {
+      return z.record(z.string().min(1), principal).parse(JSON.parse(s));
+    } catch {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'API keys must be a JSON object of tokens to principals',
+      });
+      return z.NEVER;
+    }
+  });
 export const configSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     APP_MODE: z.enum(['mock', 'live']).default('mock'),
     PORT: z.coerce.number().int().min(0).max(65535).default(3000),
     HOST: z.string().default('127.0.0.1'),
+    OPS_ENABLED: bool.default(false),
+    OPS_HOST: z.string().min(1).default('127.0.0.1'),
+    OPS_PORT: z.coerce.number().int().min(0).max(65535).default(3001),
+    OPS_API_KEYS: apiKeys,
     PLUGIN_STATE_PATH: z.string().min(1).default('data/plugins.json'),
     PLUGIN_SAFE_MODE: bool.default(false),
     INFRA_MODE: z.enum(['memory', 'external']).optional(),
@@ -31,20 +49,7 @@ export const configSchema = z
     MEM0_ENABLED: bool.default(false),
     MEM0_URL: z.string().url().default('http://localhost:8888'),
     MEM0_API_KEY: z.string().default(''),
-    API_KEYS: z
-      .string()
-      .default('{}')
-      .transform((s, ctx) => {
-        try {
-          return z.record(z.string(), principal).parse(JSON.parse(s));
-        } catch {
-          ctx.addIssue({
-            code: 'custom',
-            message: 'API_KEYS must be a JSON object of API keys to principals',
-          });
-          return z.NEVER;
-        }
-      }),
+    API_KEYS: apiKeys,
     SEED_KNOWLEDGE: bool.default(true),
     SEED_TENANT_ID: z.string().default('demo'),
     OTEL_ENABLED: bool.default(false),
@@ -56,6 +61,16 @@ export const configSchema = z
     RUN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(90000).default(90000),
   })
   .superRefine((c, ctx) => {
+    if (c.OPS_ENABLED) {
+      if (!Object.values(c.OPS_API_KEYS).some((p) => p.admin === true && p.managePlugins === true))
+        ctx.addIssue({
+          code: 'custom',
+          message:
+            'OPS_ENABLED requires a dedicated OPS_API_KEYS maintainer with admin && managePlugins',
+        });
+      if (Object.keys(c.OPS_API_KEYS).some((token) => Object.hasOwn(c.API_KEYS, token)))
+        ctx.addIssue({ code: 'custom', message: 'OPS_API_KEYS must not reuse API_KEYS tokens' });
+    }
     if (
       (c.APP_MODE === 'live' || c.NODE_ENV === 'production') &&
       Object.keys(c.API_KEYS).length === 0

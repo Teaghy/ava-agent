@@ -17,7 +17,7 @@ Web 页面支持发送问题、Markdown 回答、SSE 状态、停止生成、新
 
 `pnpm dev` 构建 Harness、共享包和前端后，由 pnpm 监听 Harness、Web、Protocol、SDK、Shared 的变更。需要 Vite HMR 时分别运行 `pnpm dev:harness` 和 `pnpm dev:web`，浏览器打开 `http://127.0.0.1:5173`。
 
-**可视化接入插件：** 点击聊天侧栏“插件管理”，或打开 `http://127.0.0.1:3000/#/plugins`。支持加载独立项目已构建的本地 JS，登记、配置、启停和切换算法 Provider，重启后恢复。操作需要 `admin: true` 且 `managePlugins: true` 的平台 Token。配置权限、项目示例与故障恢复见 [Web 插件管理](docs/plugin-management.md)。
+**维护人员接入插件：** 内置 Harness Ops 默认关闭。配置 `OPS_ENABLED=true` 和独立的 `OPS_API_KEYS` 后，打开 `http://127.0.0.1:3001/`。支持登记独立项目已构建的本地 JS、配置、启停和切换 Provider，重启后恢复。聊天端和业务管理端不提供插件维护；管理 API 只存在于独立维护监听。配置权限、部署和故障恢复见 [Harness Ops 插件维护](docs/plugin-management.md)。
 
 ### pnpm monorepo
 
@@ -37,6 +37,7 @@ apps/
     src/services/             # SDK → 界面适配
     src/lib/                  # 仅 UI 类型
   admin/                      # @ava/admin：管理端骨架，尚无页面/启动脚本
+  ops/                        # @ava/ops：维护人员界面，由 Harness 内置插件托管
 packages/
   protocol/                   # @ava/protocol：chat、citation、knowledge、error、config
   sdk/                        # @ava/sdk：AgentClient、chat、stream、knowledge
@@ -45,7 +46,7 @@ packages/
 pnpm-workspace.yaml
 ava.config.ts                 # 固定应用装配；dev/start 自动读取对应源/构建配置
 extensions/                   # 可选的应用内插件；独立项目不需要放在这里
-data/plugins.json             # Web 管理登记与参数，默认不提交
+data/plugins.json             # Ops 插件登记与参数，默认不提交
 tsconfig.base.json            # 引用 packages/config 中的配置
 .env                          # 配置保留在根目录，不提交
 ```
@@ -66,7 +67,7 @@ pnpm build:harness
 pnpm build:web
 ```
 
-单独运行子包检查前，先运行 `pnpm --filter @ava/sdk... build` 构建共享依赖。原 `dev:server`、`build:server` 根命令保留为 Harness 命令的别名。部署时保留 `apps/harness/dist`、`apps/web/dist`、`packages/protocol/dist`、`packages/shared/dist` 及对应 workspace 依赖；使用根应用配置时还要保留 `.ava/` 构建产物，Web 插件登记文件和独立插件运行依赖也应持久保留。运行 `pnpm start`。仅部署 API 时可以省略 Web 产物。
+单独运行 Harness 测试前，先运行 `pnpm --filter @ava/harness... build` 构建依赖与 Ops 资源。原 `dev:server`、`build:server` 根命令保留为 Harness 命令的别名。部署时保留 `apps/harness/dist`（包含 `ops/` 静态资源）、`apps/web/dist`、`packages/protocol/dist`、`packages/shared/dist` 及对应 workspace 依赖；使用根应用配置时还要保留 `.ava/` 构建产物，插件登记文件和独立插件运行依赖也应持久保留。运行 `pnpm start`。仅部署 API 时可以省略 Web 产物，Ops 无需独立部署。
 
 ```bash
 curl -N http://localhost:3000/api/v1/chat \
@@ -179,9 +180,9 @@ flowchart TD
 1. 获取会话锁并校验会话所有者，持久化用户消息与初始 checkpoint。
 2. 读取近期对话、摘要和用户范围内的长期记忆。
 3. Runtime 将当前任务、权限范围内的工具目录、知识源目录、近期消息、摘要、观察、记忆、检索文档和取消信号交给 `ctx.decision.decide(input, context)`。默认主模型 Provider 通过 ContextBuilder 在预算内构建模型输入。
-4. Zod 严格校验决策。工具通过参数校验、服务端权限和审计后执行。
+4. Zod 严格校验决策。工具执行前校验参数和服务端权限，执行后写入审计；审计失败中止本轮并要求核对结果，不交给模型自动重试。
 5. 记录 Observation、结构化决策和 checkpoint，进入下一步。
-6. Guard 验证引用和基础业务一致性，再持久化并发送答案。
+6. Guard 对答案和追问执行行业策略，最终答案额外验证引用和证据，再持久化并发送响应。
 
 不请求、不持久化、不传输模型完整思维链。模型额外返回 reasoning 字段会被严格 schema 拒绝。默认限制为 8 步、10 次工具调用、3 次 RAG 检索、90 秒运行超时。检索工具的每次调用最多生成 3 个查询变体。
 
@@ -230,7 +231,7 @@ curl http://localhost:3000/api/v1/knowledge \
 
 不会自动把整段对话写进长期记忆。业务层应在明确授权和筛选后调用 `ctx.memory.remember()`；`recall()`、`forget()` 都要求 tenant/user 范围。Agent 只读取 MemoryService，不依赖 Mem0。
 
-达到消息或字节预算阈值后生成有界、滚动的抽取式摘要；不会把用户主张自动升级为 confirmedFacts。后续可用模型摘要 Provider 替换当前压缩策略。
+响应完成后在后台按会话顺序更新有界、滚动的抽取式摘要；达到消息或字节预算阈值时才生成，不会把用户主张自动升级为 confirmedFacts。摘要失败只记录日志，不阻塞回答或把完成状态改成失败，停止时等待维护任务清理。后续可用模型摘要 Provider 替换当前压缩策略。
 
 ### 为什么没有安装 mem0ai npm 包？
 

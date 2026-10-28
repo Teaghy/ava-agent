@@ -43,7 +43,7 @@ import {
 import { AppError } from '../core/errors.js';
 import { PluginManager } from '../plugins/plugin-manager/manager.js';
 import { PluginRuntime, type BaseProvider } from '../plugins/plugin-manager/runtime.js';
-import { pluginManagerApiPlugin } from '../plugins/plugin-manager/index.js';
+import { opsConsolePlugin } from '../plugins/ops-console/index.js';
 import type { PluginSlot } from '@ava/protocol';
 export async function createHarness(config: Config, options: HarnessOptions = {}) {
   const mock = config.APP_MODE === 'mock';
@@ -207,7 +207,15 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
         getAgent: () => ctx.agent,
         isPaused: () => pluginManager.changing,
       }),
-      ctx.plugin(pluginManagerApiPlugin, { ...auth, manager: pluginManager }),
+      ...(config.OPS_ENABLED
+        ? [
+            ctx.plugin(opsConsolePlugin, {
+              keys: config.OPS_API_KEYS,
+              allowAnonymous: false,
+              manager: pluginManager,
+            }),
+          ]
+        : []),
       ctx.plugin(knowledgeApiPlugin, auth),
       ctx.plugin(conversationsApiPlugin, auth),
       ctx.plugin(webStaticPlugin, () => ({
@@ -237,14 +245,34 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       ctx.http.get('/health', async () => ({ body: { status: 'ok', mode: config.APP_MODE } })),
     );
     let stopping: Promise<void> | undefined;
+    let opsPort: number | undefined;
+    let started = false;
     return {
       ctx,
       pluginManager,
-      start: () => ctx.http.start(config.PORT, config.HOST),
+      get opsPort() {
+        return opsPort;
+      },
+      start: async () => {
+        if (started) throw new Error('Harness already started');
+        started = true;
+        try {
+          if (config.OPS_ENABLED) opsPort = await ctx.ops.start(config.OPS_PORT, config.OPS_HOST);
+          return await ctx.http.start(config.PORT, config.HOST);
+        } catch (error) {
+          started = false;
+          await ctx.ops?.stop();
+          opsPort = undefined;
+          await ctx.http.stop();
+          throw error;
+        }
+      },
       stop: () =>
         (stopping ??= (async () => {
           try {
             await pluginManager.close();
+            await ctx.ops?.stop();
+            opsPort = undefined;
             await ctx.http.stop();
             await ctx.agent?.stop();
           } finally {

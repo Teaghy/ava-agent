@@ -15,7 +15,7 @@ export const guardPlugin = {
           if (policies.get(policy.name) === policy) policies.delete(policy.name);
         };
       },
-      async validate(answer, citations, state, signal) {
+      async validate(answer, citations, state, signal, responseType = 'final_answer') {
         checkAbort(signal);
         for (const citation of citations) {
           const doc = state.retrievedDocuments.find(
@@ -24,9 +24,10 @@ export const guardPlugin = {
           if (!doc || doc.title !== citation.title || doc.source !== citation.source)
             throw new AppError('INVALID_CITATION', '答案引用无法验证。', 422);
         }
-        if (state.retrievedDocuments.length && !citations.length)
+        if (responseType === 'final_answer' && state.retrievedDocuments.length && !citations.length)
           throw new AppError('CITATION_REQUIRED', '知识库答案必须提供引用。', 422);
         if (
+          responseType === 'final_answer' &&
           !state.retrievedDocuments.length &&
           !state.observations.some(
             (o) =>
@@ -41,7 +42,7 @@ export const guardPlugin = {
         for (const policy of selectedPolicies) {
           checkAbort(signal);
           const snapshot = structuredClone({ citations, state });
-          await policy.validate(answer, snapshot.citations, snapshot.state, signal);
+          await policy.validate(answer, snapshot.citations, snapshot.state, signal, responseType);
         }
         checkAbort(signal);
       },

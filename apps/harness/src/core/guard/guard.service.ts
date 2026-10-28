@@ -7,10 +7,11 @@ export interface GuardService {
     citations: Citation[],
     state: AgentState,
     signal?: AbortSignal,
+    responseType?: 'final_answer' | 'ask_user',
   ): Promise<void>;
 }
 
-/** Additional industry validation, executed after the baseline checks. */
+/** Industry validation for every visible response, after applicable evidence checks. */
 export interface AnswerPolicy {
   name: string;
   validate(
@@ -18,5 +19,6 @@ export interface AnswerPolicy {
     citations: Citation[],
     state: AgentState,
     signal?: AbortSignal,
+    responseType?: 'final_answer' | 'ask_user',
   ): void | Promise<void>;
 }

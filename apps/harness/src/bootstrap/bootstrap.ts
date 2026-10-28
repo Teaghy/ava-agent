@@ -26,6 +26,8 @@ export async function bootstrap() {
   });
   const port = await harness.start();
   harness.ctx.telemetry.log({ port }, 'HTTP listening');
+  if (harness.opsPort !== undefined)
+    harness.ctx.telemetry.log({ host: config.OPS_HOST, port: harness.opsPort }, 'Ops listening');
   let stopping = false;
   for (const signal of ['SIGINT', 'SIGTERM'] as const)
     process.once(signal, () => {

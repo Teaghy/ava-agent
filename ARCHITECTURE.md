@@ -112,7 +112,7 @@ packages/
 
 开发者公开入口为 `@ava/harness`（程序化装配）与 `@ava/harness/plugin`（插件领域契约）；声明文件随 Harness 构建输出。`createHarness` 的 `providers` 在启动前选择唯一服务实现，`plugins` 追加能力；具体槽位和约定见 [插件开发文档](docs/plugin-development.md)。`examples/retail` 为独立 workspace 包，仅通过公开入口接入规则决策、订单工具、知识源与答案审核。没有新增第二套 DI 或插件调度器。
 
-日常启动读取根 `ava.config.ts` / `.ava/ava.config.js` 的固定装配。Web `#/plugins` 使用 SDK 管理独立本地 JS 插件；平台权限为 `admin && managePlugins`。`plugin-manager` 维护原生 Cordis 安装句柄、默认安装函数与成功配置的原子持久化，串行切换时暂停/取消并等待 Agent，失败回退；不响应释放则保持执行门禁关闭并要求重启。底座不管理外部插件源码和构建，不提供同进程代码沙箱。管理契约见 [Web 插件管理](docs/plugin-management.md)。
+日常启动读取根 `ava.config.ts` / `.ava/ava.config.js` 的固定装配。`apps/web` 面向客户，`apps/admin` 面向业务管理员，`apps/ops` 面向维护人员。Ops 构建产物随 Harness 发布，由内置 `ops-console` 插件托管；`OPS_ENABLED` 默认关闭，启用后页面和管理 API 使用独立的 `ops` HTTP 服务、`OPS_HOST` / `OPS_PORT` 与 `OPS_API_KEYS`，不注册到公开聊天监听。维护身份要求 `admin && managePlugins`，且凭证不能与业务 `API_KEYS` 复用。维护插件是启动基础设施，不进入可卸载的管理插件目录，`ops` 是保留服务。`plugin-manager` 维护原生 Cordis 安装句柄、默认安装函数与成功配置的原子持久化，串行切换时暂停/取消并等待 Agent，失败回退；不响应释放则保持执行门禁关闭并要求重启。当前装配仍为进程级；底座不管理外部插件源码和构建，不提供同进程代码沙箱。管理契约见 [Harness Ops 插件维护](docs/plugin-management.md)。
 
 决策链路：Agent Runtime → `ctx.decision` → 默认 `decision-main-model` → `ctx.model`。Runtime 只管理执行、预算、权限、Guard 和轨迹；默认决策 Provider 使用 ContextBuilder 构建模型上下文。Core 的 `decision/` 明确定义服务、输入/上下文和输出 schema；原 `agent/agent-decision.ts` 保留为兼容导出。
 

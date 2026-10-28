@@ -7,7 +7,6 @@ import type {
   PluginSlot,
 } from '@ava/protocol';
 import {
-  ArrowLeft,
   ArrowUpRight,
   Check,
   ChevronRight,
@@ -23,7 +22,6 @@ import {
   Settings2,
   Trash2,
 } from 'lucide-react';
-import { Brand } from '../components/Brand';
 import { changePlugin, configurePlugin, installPlugin, loadPlugins } from '../services/plugins';
 import './plugins.css';
 
@@ -41,9 +39,9 @@ const statusLabels = { active: '运行中', disabled: '已停用', failed: '加�
 function requestError(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 401)
-      return 'Token 无效或已过期，请更换有效的平台管理员 Token 后重新连接。';
+      return 'Token 无效或已过期，请更换有效的平台维护人员 Token 后重新连接。';
     if (error.status === 403)
-      return '当前身份没有插件管理权限。请使用同时具有 admin: true 和 managePlugins: true 的平台管理员 Token；知识库管理员身份无法管理进程插件。';
+      return '当前身份没有插件管理权限。请使用同时具有 admin: true 和 managePlugins: true 的平台维护人员 Token；知识库管理员身份无法管理进程插件。';
     return error.message;
   }
   if (error instanceof TypeError) return '无法连接服务，请检查网络与服务器状态后重试。';
@@ -73,7 +71,7 @@ export function PluginsPage() {
 
   useEffect(() => {
     const title = document.title;
-    document.title = '插件管理 · Ava';
+    document.title = '插件维护 · Harness Ops';
     return () => {
       request.current?.abort();
       document.title = title;
@@ -221,7 +219,7 @@ export function PluginsPage() {
     <div className="plugins-page">
       <a
         className="skip-link"
-        href="#/plugins"
+        href="#plugin-main"
         onClick={(event) => {
           event.preventDefault();
           document.getElementById('plugin-main')?.focus();
@@ -230,31 +228,25 @@ export function PluginsPage() {
         跳到插件管理内容
       </a>
       <header className="plugins-topbar">
-        <a className="plugins-brand" href="#/" aria-label="返回 Ava 对话">
-          <Brand />
-          <span>
-            ava<span>.</span>
-          </span>
+        <a className="plugins-brand" href="/" aria-label="Harness Ops 首页">
+          <Puzzle size={28} />
+          <span>Harness Ops</span>
         </a>
         <span className="plugins-breadcrumb">
           <ChevronRight size={14} />
-          工作空间<span>/</span>插件管理
+          系统维护<span>/</span>插件管理
         </span>
-        <a className="plugins-back" href="#/">
-          <ArrowLeft size={15} />
-          返回对话
-        </a>
       </header>
       <main className="plugins-content" id="plugin-main" tabIndex={-1}>
         <div className="plugins-heading">
           <div>
-            <span className="plugins-eyebrow">WORKSPACE EXTENSIONS</span>
-            <h1>插件管理</h1>
-            <p>连接你自己的能力，按需扩展 Ava。</p>
+            <span className="plugins-eyebrow">HARNESS OPERATIONS</span>
+            <h1>插件维护</h1>
+            <p>维护当前 Harness 的插件装配与运行状态。变更会暂停并取消当前任务。</p>
           </div>
           <span className="plugins-admin-label">
             <ShieldCheck size={15} />
-            平台管理员
+            平台维护人员
           </span>
         </div>
 
@@ -268,7 +260,7 @@ export function PluginsPage() {
               <p>
                 {token
                   ? 'Token 仅保存在当前页面内存中，离开本页即清除。'
-                  : '使用同时具备 admin 与 managePlugins 权限的平台管理员 Token。'}
+                  : '使用 OPS_API_KEYS 中专门配置的维护 Token，业务端 Token 无法连接。'}
               </p>
             </div>
           </div>
@@ -306,13 +298,13 @@ export function PluginsPage() {
           ) : (
             <form className="plugins-token-form" onSubmit={connect}>
               <label className="sr-only" htmlFor="plugin-token">
-                平台管理员 Token
+                平台维护人员 Token
               </label>
               <input
                 ref={tokenField}
                 id="plugin-token"
                 type="password"
-                placeholder="输入平台管理员 Token"
+                placeholder="输入平台维护人员 Token"
                 value={tokenInput}
                 autoComplete="off"
                 spellCheck={false}
@@ -679,7 +671,7 @@ export function PluginsPage() {
                 </button>
               </fieldset>
               {!token && (
-                <p className="plugins-form-hint">先连接平台管理员 Token，即可登记和管理插件。</p>
+                <p className="plugins-form-hint">先连接平台维护人员 Token，即可登记和管理插件。</p>
               )}
             </form>
             <div className="plugins-install-note">
@@ -693,14 +685,8 @@ export function PluginsPage() {
           </section>
         </div>
         <footer className="plugins-footer">
-          <Brand small />
-          <span>
-            Ava 工作空间<span>·</span>能力由你扩展
-          </span>
-          <a href="#/">
-            返回对话
-            <ArrowUpRight size={13} />
-          </a>
+          <ShieldCheck size={16} />
+          <span>Harness Ops · 仅供受信任的平台维护人员使用</span>
         </footer>
       </main>
     </div>

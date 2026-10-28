@@ -43,6 +43,7 @@ const managed = new Set<string>([
   'knowledge',
   'qdrantKnowledge',
   'http',
+  'ops',
   'telemetry',
   'pluginManager',
 ]);

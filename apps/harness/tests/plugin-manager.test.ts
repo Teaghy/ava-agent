@@ -37,8 +37,14 @@ async function setup(statePath?: string, safeMode = false, timeout = 1000) {
       NODE_ENV: 'test',
       PORT: '0',
       SEED_KNOWLEDGE: 'false',
-      API_KEYS: JSON.stringify({
+      OPS_ENABLED: 'true',
+      OPS_PORT: '0',
+      OPS_API_KEYS: JSON.stringify({
         platform: { ...principal, admin: true, managePlugins: true },
+        'ops-admin': { ...principal, admin: true },
+      }),
+      API_KEYS: JSON.stringify({
+        'chat-platform': { ...principal, admin: true, managePlugins: true },
         tenant: { ...principal, admin: true },
         ordinary: principal,
       }),
@@ -51,8 +57,9 @@ async function setup(statePath?: string, safeMode = false, timeout = 1000) {
   );
   harnesses.push(h);
   const url = `http://127.0.0.1:${await h.start()}`;
+  const opsUrl = `http://127.0.0.1:${h.opsPort}`;
   const request = async (path = '', body?: unknown, token: string | null = 'platform') =>
-    fetch(`${url}/api/v1/plugins${path}`, {
+    fetch(`${opsUrl}/api/v1/plugins${path}`, {
       method: body === undefined ? 'GET' : 'POST',
       headers: {
         ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -83,8 +90,10 @@ describe('Local plugin administration', () => {
     for (const [token, status] of [
       [null, 401],
       ['invalid', 401],
-      ['tenant', 403],
-      ['ordinary', 403],
+      ['tenant', 401],
+      ['ordinary', 401],
+      ['chat-platform', 401],
+      ['ops-admin', 403],
     ] as const) {
       expect(
         (await request('/install', { name: 'forbidden', entry, kind: 'extension' }, token)).status,
@@ -193,10 +202,16 @@ describe('Local plugin administration', () => {
       'wrong',
       `export default { provide:['model'], apply(){} };`,
     );
+    const opsConflict = await moduleFile(
+      root,
+      'ops-conflict',
+      `export default { provide:['ops'], apply(){} };`,
+    );
     const invalid = await moduleFile(root, 'invalid', `export default 123;`);
     for (const entry of [
       'relative.mjs',
       'https://example.org/plugin.mjs',
+      opsConflict,
       join(root, 'source.ts'),
       root,
       join(root, 'missing.mjs'),
@@ -285,7 +300,7 @@ describe('Local plugin administration', () => {
     ).rejects.toMatchObject({ code: 'PLUGIN_CHANGE_IN_PROGRESS' });
     const response = await fetch(`${url}/api/v1/chat`, {
       method: 'POST',
-      headers: { authorization: 'Bearer platform' },
+      headers: { authorization: 'Bearer chat-platform' },
       body: JSON.stringify({ conversationId: 'paused-http', message: 'hello' }),
     });
     expect(response.status).toBe(503);

@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type { AgentTool, ToolService } from '../../core/tools/tool.js';
 import type { ToolContext } from '../../core/tools/tool-context.js';
-import type { ToolDescriptor } from '../../core/tools/tool.types.js';
+import type { AuditLog, ToolDescriptor } from '../../core/tools/tool.types.js';
+import { ToolAuditError } from '../../core/tools/tool-audit-error.js';
 import { AppError, checkAbort } from '../../core/errors.js';
 interface Registered {
   descriptor: ToolDescriptor;
@@ -43,13 +44,15 @@ export class ToolRegistry implements ToolService {
     const entry = this.registry.get(name);
     if (!entry) throw new AppError('UNKNOWN_TOOL', '工具不存在。', 400);
     let status: 'completed' | 'failed' | 'denied' = 'failed';
+    let output: unknown;
+    let executionError: unknown;
     try {
       checkAbort(context.signal);
       if (!context.principal.permissions.includes(entry.descriptor.permission)) {
         status = 'denied';
         throw new AppError('TOOL_FORBIDDEN', '当前身份没有执行此工具的权限。', 403);
       }
-      const output = await this.telemetry.span(
+      output = await this.telemetry.span(
         'tool.execute',
         { run_id: context.state.runId, tool: name },
         () => entry.execute(input, context),
@@ -58,18 +61,29 @@ export class ToolRegistry implements ToolService {
         throw new AppError('TOOL_OUTPUT_TOO_LARGE', '工具返回内容过大。');
       checkAbort(context.signal);
       status = 'completed';
-      return output;
-    } finally {
-      await this.audit({
-        id: randomUUID(),
-        runId: context.state.runId,
-        tenantId: context.principal.tenantId,
-        userId: context.principal.userId,
-        tool: name,
-        permission: entry.descriptor.permission,
-        status,
-        createdAt: new Date().toISOString(),
-      });
+    } catch (error) {
+      executionError = error;
     }
+    const audit: AuditLog = {
+      id: randomUUID(),
+      runId: context.state.runId,
+      tenantId: context.principal.tenantId,
+      userId: context.principal.userId,
+      tool: name,
+      permission: entry.descriptor.permission,
+      status,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      await this.audit(audit);
+    } catch (cause) {
+      this.telemetry.log(
+        { event: 'tool.audit_failed', run_id: audit.runId, tool: name, status },
+        'tool audit unavailable; execution requires reconciliation',
+      );
+      throw new ToolAuditError(audit, status === 'completed' ? output : undefined, cause);
+    }
+    if (status !== 'completed') throw executionError;
+    return output;
   }
 }

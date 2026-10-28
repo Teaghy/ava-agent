@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { ToolRegistry } from '../src/plugins/tools/index.js';
 import { principal, silentTelemetry } from './helpers.js';
@@ -22,6 +22,62 @@ const context: ToolContext = {
   emit: async () => {},
 };
 describe('Tool registry', () => {
+  it('distinguishes a completed action from an audit failure and logs the missing audit', async () => {
+    const log = vi.fn();
+    const registry = new ToolRegistry(
+      async () => {
+        throw new Error('private audit failure');
+      },
+      { ...silentTelemetry, log },
+    );
+    const execute = vi.fn(async () => ({ ticketId: 'T1' }));
+    registry.register({
+      name: 'submit_ticket',
+      description: 'submit',
+      permission: 'WRITE',
+      inputSchema: z.object({}),
+      execute,
+    });
+    await expect(
+      registry.execute(
+        'submit_ticket',
+        {},
+        { ...context, principal: { ...principal, permissions: ['WRITE'] } },
+      ),
+    ).rejects.toMatchObject({
+      code: 'TOOL_AUDIT_FAILED',
+      status: 503,
+      audit: { tool: 'submit_ticket', status: 'completed' },
+      result: { ticketId: 'T1' },
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'tool.audit_failed', status: 'completed' }),
+      expect.any(String),
+    );
+    expect(JSON.stringify(log.mock.calls)).not.toContain('private audit failure');
+  });
+
+  it('does not run a denied action even when its audit cannot be written', async () => {
+    const registry = new ToolRegistry(async () => {
+      throw new Error('audit unavailable');
+    }, silentTelemetry);
+    const execute = vi.fn();
+    registry.register({
+      name: 'submit_ticket',
+      description: 'submit',
+      permission: 'WRITE',
+      inputSchema: z.object({}),
+      execute,
+    });
+    await expect(registry.execute('submit_ticket', {}, context)).rejects.toMatchObject({
+      code: 'TOOL_AUDIT_FAILED',
+      audit: { status: 'denied' },
+      result: undefined,
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it('validates inputs, denies unauthorized writes, audits and disposes registrations', async () => {
     const audits: AuditLog[] = [];
     let calls = 0;

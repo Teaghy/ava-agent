@@ -10,3 +10,4 @@ export type {
 export { decisionSchema, type AgentDecision } from './core/decision/decision.schema.js';
 export { ContextBuilder } from './core/agent/context-builder.js';
 export { AppError, checkAbort } from './core/errors.js';
+export { ToolAuditError } from './core/tools/tool-audit-error.js';

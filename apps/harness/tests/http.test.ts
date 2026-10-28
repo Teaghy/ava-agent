@@ -10,6 +10,51 @@ async function setup(keys?: string) {
   return { h, url: `http://127.0.0.1:${await h.start()}` };
 }
 describe('H3 chat transport', () => {
+  it('finishes the response successfully even if optional summary storage fails', async () => {
+    const { h, url } = await setup();
+    vi.spyOn(h.ctx.decision, 'decide').mockResolvedValue({
+      type: 'ask_user',
+      question: '请提供订单号。',
+    });
+    vi.spyOn(h.ctx.sessions, 'summarize').mockRejectedValue(new Error('private summary failure'));
+    const response = await fetch(`${url}/api/v1/chat`, {
+      method: 'POST',
+      body: JSON.stringify({ conversationId: 'http-summary-failure', message: 'hello' }),
+    });
+    const body = await response.text();
+    expect(body).toContain('event: answer.completed');
+    expect(body).not.toContain('event: error');
+    expect(body).not.toContain('private summary failure');
+    expect(
+      (await h.ctx.sessions.recent('http-summary-failure')).filter((m) => m.role === 'assistant'),
+    ).toHaveLength(1);
+  });
+
+  it('reports audit failure through SSE without repeating the action or exposing private details', async () => {
+    const { h, url } = await setup(
+      JSON.stringify({ writer: { tenantId: 't', userId: 'u', permissions: ['READ', 'WRITE'] } }),
+    );
+    vi.spyOn(h.ctx.storage, 'audit').mockRejectedValue(new Error('private audit failure'));
+    const execute = vi.spyOn(h.ctx.tools, 'execute');
+    const decide = vi.spyOn(h.ctx.decision, 'decide').mockResolvedValue({
+      type: 'tool_call',
+      tool: 'create_ticket',
+      arguments: { description: '请创建新的工单。' },
+    });
+    const response = await fetch(`${url}/api/v1/chat`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer writer' },
+      body: JSON.stringify({ conversationId: 'http-audit-failure', message: 'submit' }),
+    });
+    const body = await response.text();
+    expect(body).toContain('event: error');
+    expect(body).toContain('TOOL_AUDIT_FAILED');
+    expect(body).not.toContain('private audit failure');
+    expect(body).not.toContain('event: answer.completed');
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(decide).toHaveBeenCalledTimes(1);
+  });
+
   it('returns safe SSE errors and rejects oversized bodies', async () => {
     const { h, url } = await setup();
     vi.spyOn(h.ctx.model, 'structuredOutput').mockRejectedValue(

@@ -1,22 +1,33 @@
-# Web 插件管理
+# Harness Ops 插件维护
 
 插件独立成项目维护、安装依赖并构建，Harness 只加载其 JavaScript 入口。第一版支持服务端本地的 `.js`、`.mjs`、`.cjs` 文件，不下载 npm，不接收源码上传，不代运行构建脚本。
 
 ## 从哪里进入
 
-运行 `pnpm dev`，打开聊天页面，点击左侧“插件管理”；也可以访问 `http://127.0.0.1:3000/#/plugins`（端口随服务配置）。管理页支持登记、参数配置、启用、停用、移除，以及查看当前 Provider。
+插件维护只面向受信任的平台维护人员。客户聊天端 `apps/web` 和业务管理端 `apps/admin` 不提供插件维护入口。独立界面源码位于 `apps/ops`，构建后随 Harness 打包，由启动时装配的内置 `ops-console` 插件提供，无需独立部署维护后端。
+
+Ops 默认关闭。配置下面的独立维护凭证并重启后，打开 `http://127.0.0.1:3001/`（端口随 `OPS_PORT` 配置）。管理页支持登记、参数配置、启用、停用、移除，以及查看当前 Provider。聊天服务的端口不注册任何插件管理 API。
 
 日常 CLI 启动默认启用持久管理。直接调用 `createHarness` 默认不开启磁盘管理，需要显式传入 `pluginManagement: { statePath }`；设为 `false` 可关闭管理。根目录 `ava.config.ts` 继续用于固定装配，开发启动读取 TS，生产启动读取构建后的 `.ava/ava.config.js`。
 
-## 配置平台管理权限
+## 配置维护入口与权限
 
-在根 `.env` 中的 `API_KEYS` 为平台管理员配置一个 Token。下面的键是占位示例，部署时替换为自己生成的长随机值：
+在根 `.env` 中使用 `OPS_API_KEYS` 为维护人员配置专门的 Token。下面的键是占位示例，部署时替换为自己生成的长随机值：
 
 ```dotenv
-API_KEYS={"replace-with-your-random-platform-token":{"tenantId":"demo","userId":"operator","permissions":["READ","WRITE"],"admin":true,"managePlugins":true}}
+OPS_ENABLED=true
+OPS_HOST=127.0.0.1
+OPS_PORT=3001
+OPS_API_KEYS={"replace-with-your-random-maintenance-token":{"tenantId":"platform","userId":"operator","permissions":["READ","WRITE"],"admin":true,"managePlugins":true}}
 ```
 
-修改后重启服务，在管理页输入该 Token。只有同时具有 `admin: true` 和 `managePlugins: true` 的身份能管理进程插件。普通知识库管理员、匿名演示身份都不能加载代码。Token 只保存在页面内存中，离开管理页后清除。
+修改后重启服务，在 Ops 页面输入该 Token。启用 Ops 时必须至少配置一个同时具有 `admin: true` 和 `managePlugins: true` 的维护身份；维护 Token 不得与 `API_KEYS` 复用，否则拒绝启动。聊天端的客户、业务管理员以及旧平台 Token 都不能访问 Ops，维护 Token 也不能用于聊天业务接口。维护 API 不允许匿名访问，Token 只保存在页面内存中，刷新或离开页面后清除，不写入浏览器存储。
+
+Ops 页面与维护 API 共用独立监听，默认只绑定本机。远程维护优先使用 SSH 隧道或受限内网网关；需要绑定私网 IP 时配置 `OPS_HOST` 并限制来源，不要把它直接暴露到公网。跨网络传输凭证应在受限网关终止 TLS。仅修改 URL 前缀、隐藏菜单或配置 CORS 不构成访问隔离。
+
+`ops-console`、维护 API、HTTP 和鉴权属于启动基础设施，不出现在可启停或移除的管理插件列表中，`ops` 服务也是保留服务。Ops 与 Harness 共用进程，不能在进程崩溃、卡死或启动失败后自救，此时需要命令行、部署系统或下文 safe mode 恢复。
+
+`pnpm build` 或 `pnpm build:harness` 会先构建 Ops 并复制到 `apps/harness/dist/ops`，部署 Harness 时一并保留这个目录，无需额外保留 `apps/ops` 源码。`pnpm dev` 会监听 Ops 构建；开发时访问 Harness 的 Ops 端口即可。`OPS_ENABLED=false` 只关闭维护入口，不会停用已登记的业务插件，也不会删除登记文件。
 
 ## 加载自己的插件
 
@@ -86,11 +97,13 @@ safe mode 跳过自动激活，不静默修改保存的启用偏好；页面按�
 
 ## API / SDK
 
-管理接口都要求平台权限：
+管理接口只注册在 Ops 监听上，都要求独立的维护权限：
 
 - `GET /api/v1/plugins`
 - `POST /api/v1/plugins/install`
 - `POST /api/v1/plugins/action`：`{ id, action: "enable" | "disable" | "remove" }`
 - `POST /api/v1/plugins/configure`：`{ id, config }`
 
-对应 SDK 为 `client.plugins.list/install/action/configure`，支持 AbortSignal。返回快照不包含已保存的插件参数。
+对应 SDK 为 `client.plugins.list/install/action/configure`，支持 AbortSignal。客户端必须使用 Ops 地址与维护 Token，例如 `new AgentClient({ baseURL: 'http://127.0.0.1:3001', token })`；Ops 页面使用同源地址。返回快照不包含已保存的插件参数。
+
+当前仍是进程级 Provider 装配，维护操作会影响这个 Harness 上的全部会话。第一版不提供插件市场、发布目录、多实例共享运行时或不中断的热切换；需要隔离多个客服实例时先部署独立 Harness。
