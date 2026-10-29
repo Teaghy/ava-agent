@@ -1,5 +1,10 @@
 import type { Context } from 'cordis';
-import { pluginInstallSchema, pluginActionSchema, pluginConfigureSchema } from '@ava/protocol';
+import {
+  pluginInstallSchema,
+  pluginActionSchema,
+  pluginConfigureSchema,
+  MAX_PLUGIN_UPLOAD_BYTES,
+} from '@ava/protocol';
 import { authenticate, type AuthConfig } from '../../core/http/auth.js';
 import type { HttpRequest } from '../../core/http/http.types.js';
 import { AppError } from '../../core/errors.js';
@@ -18,6 +23,19 @@ export const pluginManagerApiPlugin = {
       ctx.ops.get('/api/v1/plugins', async (request) => {
         authorize(request);
         return { body: config.manager.snapshot() };
+      }),
+    );
+    ctx.effect(() =>
+      ctx.ops.post('/api/v1/plugins/upload', async (request) => {
+        authorize(request);
+        if (request.header('content-type')?.split(';')[0]?.trim() !== 'application/zip')
+          throw new AppError('INVALID_PLUGIN_PACKAGE', '请上传 ZIP 插件包。', 415);
+        if (!request.bytes)
+          throw new AppError('UPLOAD_UNAVAILABLE', '当前 HTTP Provider 不支持插件上传。', 501);
+        return {
+          status: 201,
+          body: await config.manager.upload(await request.bytes(MAX_PLUGIN_UPLOAD_BYTES)),
+        };
       }),
     );
     ctx.effect(() =>

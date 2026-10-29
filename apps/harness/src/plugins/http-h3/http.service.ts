@@ -100,27 +100,32 @@ export class H3HttpService implements HttpService {
             }
           }
           if (!handler) throw new AppError('NOT_FOUND', '接口不存在。', 404);
+          const readBytes = async (maxBytes: number) => {
+            const advertisedSize = Number(getHeader(event, 'content-length') ?? 0);
+            if (advertisedSize > maxBytes)
+              throw new AppError('BODY_TOO_LARGE', '请求体超过允许大小。', 413);
+            const chunks: Buffer[] = [];
+            let size = 0;
+            for await (const chunk of event.node.req) {
+              const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+              size += buffer.length;
+              if (size > maxBytes) {
+                // Drain chunked requests without buffering the remainder before returning 413.
+                continue;
+              }
+              chunks.push(buffer);
+            }
+            if (size > maxBytes) throw new AppError('BODY_TOO_LARGE', '请求体超过允许大小。', 413);
+            return Buffer.concat(chunks);
+          };
           const response = await handler({
             header: (name) => getHeader(event, name),
             signal: controller.signal,
+            bytes: readBytes,
             async body() {
-              const advertisedSize = Number(getHeader(event, 'content-length') ?? 0);
-              if (advertisedSize > 65536)
-                throw new AppError('BODY_TOO_LARGE', '请求体不得超过 64 KB。', 413);
-              const chunks: Buffer[] = [];
-              let size = 0;
-              for await (const chunk of event.node.req) {
-                const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-                size += buffer.length;
-                if (size > 65536) {
-                  // Drain chunked requests without buffering the remainder before returning 413.
-                  continue;
-                }
-                chunks.push(buffer);
-              }
-              if (size > 65536) throw new AppError('BODY_TOO_LARGE', '请求体不得超过 64 KB。', 413);
+              const bytes = await readBytes(65536);
               try {
-                return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+                return JSON.parse(bytes.toString('utf8')) as unknown;
               } catch {
                 throw new AppError('INVALID_JSON', '请求体必须是 JSON。', 400);
               }

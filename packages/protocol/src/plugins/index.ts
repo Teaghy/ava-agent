@@ -1,4 +1,5 @@
 import { z } from 'zod';
+export const MAX_PLUGIN_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 export const pluginSlotSchema = z.enum([
   'decision',
@@ -18,6 +19,11 @@ const registration = z
     slot: pluginSlotSchema.optional(),
     config: z.record(z.string(), z.unknown()).optional(),
     enabled: z.boolean().default(true),
+    version: z
+      .string()
+      .regex(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/)
+      .max(80)
+      .optional(),
   })
   .strict();
 export const pluginInstallSchema = registration.superRefine((value, ctx) => {
@@ -25,6 +31,20 @@ export const pluginInstallSchema = registration.superRefine((value, ctx) => {
     ctx.addIssue({ code: 'custom', message: 'Provider 必须选择服务槽位，扩展插件不能指定槽位。' });
 });
 export type PluginInstallRequest = z.input<typeof pluginInstallSchema>;
+export const pluginManifestSchema = registration
+  .pick({ name: true, kind: true, slot: true })
+  .extend({
+    version: z
+      .string()
+      .regex(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/)
+      .max(80),
+    entry: z.string().min(1).max(180),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    if ((v.kind === 'provider') !== (v.slot !== undefined))
+      ctx.addIssue({ code: 'custom', message: 'Provider 必须选择槽位，扩展插件不能指定槽位。' });
+  });
 export const pluginActionSchema = z
   .object({
     id: z.string().uuid(),

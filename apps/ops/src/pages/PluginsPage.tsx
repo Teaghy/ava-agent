@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AgentClient, ApiError } from '@ava/sdk';
+import { MAX_PLUGIN_UPLOAD_BYTES } from '@ava/protocol';
 import type {
   PluginActionRequest,
   PluginInstallRequest,
@@ -68,6 +69,8 @@ export function PluginsPage() {
   const [slot, setSlot] = useState<PluginSlot>('model');
   const [config, setConfig] = useState('');
   const [enabled, setEnabled] = useState(true);
+  const [archive, setArchive] = useState<File>();
+  const archiveField = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController | null>(null);
   const tokenField = useRef<HTMLInputElement>(null);
   const busy = !!pending;
@@ -477,6 +480,7 @@ export function PluginsPage() {
                           </span>
                         </div>
                         <div className="plugins-card-meta">
+                          {plugin.version && <span>版本 {plugin.version}</span>}
                           <span>
                             {plugin.kind === 'provider' ? `Provider · ${plugin.slot}` : '扩展插件'}
                           </span>
@@ -610,8 +614,8 @@ export function PluginsPage() {
                     <h3>{snapshot ? '还没有登记插件' : '准备好连接新的能力'}</h3>
                     <p>
                       {snapshot
-                        ? '在右侧填写本地构建入口，登记你的第一个插件。'
-                        : '连接管理服务，查看现有插件或登记本地插件。'}
+                        ? '在右侧上传插件 ZIP 包，安装你的第一个插件。'
+                        : '连接管理服务，查看现有插件或上传插件包。'}
                     </p>
                   </div>
                 )}
@@ -629,120 +633,172 @@ export function PluginsPage() {
                   <div>
                     <h2 id="plugin-install-title">
                       <PackagePlus size={18} />
-                      登记本地插件
+                      安装插件
                     </h2>
-                    <p>从服务器可访问的构建产物加载。</p>
+                    <p>上传已构建的 ZIP 包，安装后再配置和启用。</p>
                   </div>
                 </div>
-                <form onSubmit={install}>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!archive || !canManage) return;
+                    if (
+                      !archive.name.toLowerCase().endsWith('.zip') ||
+                      !archive.size ||
+                      archive.size > MAX_PLUGIN_UPLOAD_BYTES
+                    ) {
+                      setError('请选择不超过 10 MiB 的 ZIP 插件包。');
+                      return;
+                    }
+                    void run(
+                      '正在上传并校验插件包…',
+                      (signal) => new AgentClient({ token }).plugins.upload(archive, signal),
+                      () => {
+                        setNotice('插件已安装，当前未启用。请检查插件信息、配置参数后启用。');
+                        setArchive(undefined);
+                        if (archiveField.current) archiveField.current.value = '';
+                      },
+                    );
+                  }}
+                >
                   <fieldset disabled={!canManage}>
                     <div className="plugins-field">
-                      <label htmlFor="plugin-name">插件名称</label>
+                      <label htmlFor="plugin-archive">插件 ZIP 包</label>
                       <input
-                        id="plugin-name"
-                        value={name}
-                        onChange={(event) => setName(event.target.value)}
-                        placeholder="例如：设备诊断扩展"
+                        ref={archiveField}
+                        id="plugin-archive"
+                        type="file"
+                        accept=".zip,application/zip"
+                        onChange={(event) => setArchive(event.target.files?.[0])}
+                        aria-describedby="plugin-archive-help"
                         required
-                        maxLength={80}
                       />
+                      <p id="plugin-archive-help">
+                        不超过 10 MiB；根目录包含 ava-plugin.json、已构建的 JS 和必要资源。
+                      </p>
                     </div>
-                    <div className="plugins-field">
-                      <label htmlFor="plugin-entry">JS 入口路径</label>
-                      <input
-                        id="plugin-entry"
-                        value={entry}
-                        onChange={(event) => setEntry(event.target.value)}
-                        placeholder="例如：F:\plugins\diagnostics\dist\index.js"
-                        required
-                        maxLength={2000}
-                        spellCheck={false}
-                        aria-describedby="plugin-entry-help"
-                      />
-                      <p id="plugin-entry-help">服务器本地绝对路径，支持 .js / .mjs / .cjs。</p>
-                    </div>
-                    <div className="plugins-field">
-                      <label htmlFor="plugin-kind">插件类型</label>
-                      <select
-                        id="plugin-kind"
-                        value={kind}
-                        onChange={(event) =>
-                          setKind(event.target.value as PluginInstallRequest['kind'])
-                        }
-                      >
-                        <option value="extension">扩展插件</option>
-                        <option value="provider">算法 Provider</option>
-                      </select>
-                    </div>
-                    {kind === 'provider' && (
-                      <div className="plugins-field">
-                        <label htmlFor="plugin-slot">替换能力槽位</label>
-                        <select
-                          id="plugin-slot"
-                          value={slot}
-                          onChange={(event) => setSlot(event.target.value as PluginSlot)}
-                        >
-                          {slots.map((item) => (
-                            <option key={item.value} value={item.value}>
-                              {item.label}
-                            </option>
-                          ))}
-                        </select>
-                        <p>启用后由服务器切换到此 Provider，停用后恢复原提供方。</p>
-                      </div>
-                    )}
-                    <div className="plugins-field">
-                      <label htmlFor="plugin-config">
-                        插件配置<span>选填 · JSON 对象</span>
-                      </label>
-                      <textarea
-                        id="plugin-config"
-                        rows={4}
-                        value={config}
-                        onChange={(event) => setConfig(event.target.value)}
-                        placeholder={'{\n  "timeout": 30000\n}'}
-                        spellCheck={false}
-                        aria-describedby="plugin-config-help"
-                      />
-                      <p id="plugin-config-help">配置交给插件使用，登记后不会在列表中显示。</p>
-                    </div>
-                    <label className="plugins-toggle">
-                      <input
-                        type="checkbox"
-                        checked={enabled}
-                        onChange={(event) => setEnabled(event.target.checked)}
-                      />
-                      <span>
-                        <strong>登记后立即启用</strong>
-                        <small>关闭后仅保存登记，稍后可手动启用。</small>
-                      </span>
-                    </label>
                     <button
-                      className="plugins-button plugins-button-primary plugins-submit"
                       type="submit"
-                      disabled={!canManage || !name.trim() || !entry.trim()}
+                      className="plugins-button plugins-button-primary plugins-submit"
+                      disabled={!canManage || !archive}
                     >
-                      {busy ? (
-                        <LoaderCircle size={16} className="spinner" />
-                      ) : (
-                        <PackagePlus size={16} />
-                      )}
-                      登记插件
+                      <PackagePlus size={16} />
+                      上传并安装
                     </button>
                   </fieldset>
-                  {!token && (
-                    <p className="plugins-form-hint">
-                      先连接平台维护人员 Token，即可登记和管理插件。
-                    </p>
-                  )}
                 </form>
+                <details>
+                  <summary className="plugins-field">开发者：登记服务器本地路径</summary>
+                  <form onSubmit={install}>
+                    <fieldset disabled={!canManage}>
+                      <div className="plugins-field">
+                        <label htmlFor="plugin-name">插件名称</label>
+                        <input
+                          id="plugin-name"
+                          value={name}
+                          onChange={(event) => setName(event.target.value)}
+                          placeholder="例如：设备诊断扩展"
+                          required
+                          maxLength={80}
+                        />
+                      </div>
+                      <div className="plugins-field">
+                        <label htmlFor="plugin-entry">JS 入口路径</label>
+                        <input
+                          id="plugin-entry"
+                          value={entry}
+                          onChange={(event) => setEntry(event.target.value)}
+                          placeholder="例如：F:\plugins\diagnostics\dist\index.js"
+                          required
+                          maxLength={2000}
+                          spellCheck={false}
+                          aria-describedby="plugin-entry-help"
+                        />
+                        <p id="plugin-entry-help">服务器本地绝对路径，支持 .js / .mjs / .cjs。</p>
+                      </div>
+                      <div className="plugins-field">
+                        <label htmlFor="plugin-kind">插件类型</label>
+                        <select
+                          id="plugin-kind"
+                          value={kind}
+                          onChange={(event) =>
+                            setKind(event.target.value as PluginInstallRequest['kind'])
+                          }
+                        >
+                          <option value="extension">扩展插件</option>
+                          <option value="provider">算法 Provider</option>
+                        </select>
+                      </div>
+                      {kind === 'provider' && (
+                        <div className="plugins-field">
+                          <label htmlFor="plugin-slot">替换能力槽位</label>
+                          <select
+                            id="plugin-slot"
+                            value={slot}
+                            onChange={(event) => setSlot(event.target.value as PluginSlot)}
+                          >
+                            {slots.map((item) => (
+                              <option key={item.value} value={item.value}>
+                                {item.label}
+                              </option>
+                            ))}
+                          </select>
+                          <p>启用后由服务器切换到此 Provider，停用后恢复原提供方。</p>
+                        </div>
+                      )}
+                      <div className="plugins-field">
+                        <label htmlFor="plugin-config">
+                          插件配置<span>选填 · JSON 对象</span>
+                        </label>
+                        <textarea
+                          id="plugin-config"
+                          rows={4}
+                          value={config}
+                          onChange={(event) => setConfig(event.target.value)}
+                          placeholder={'{\n  "timeout": 30000\n}'}
+                          spellCheck={false}
+                          aria-describedby="plugin-config-help"
+                        />
+                        <p id="plugin-config-help">配置交给插件使用，登记后不会在列表中显示。</p>
+                      </div>
+                      <label className="plugins-toggle">
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          onChange={(event) => setEnabled(event.target.checked)}
+                        />
+                        <span>
+                          <strong>登记后立即启用</strong>
+                          <small>关闭后仅保存登记，稍后可手动启用。</small>
+                        </span>
+                      </label>
+                      <button
+                        className="plugins-button plugins-button-primary plugins-submit"
+                        type="submit"
+                        disabled={!canManage || !name.trim() || !entry.trim()}
+                      >
+                        {busy ? (
+                          <LoaderCircle size={16} className="spinner" />
+                        ) : (
+                          <PackagePlus size={16} />
+                        )}
+                        登记插件
+                      </button>
+                    </fieldset>
+                    {!token && (
+                      <p className="plugins-form-hint">
+                        先连接平台维护人员 Token，即可登记和管理插件。
+                      </p>
+                    )}
+                  </form>
+                </details>
                 <div className="plugins-install-note">
-                  <strong>独立构建，本地加载</strong>
+                  <strong>先安装，再启用</strong>
                   <p>
-                    插件项目自行构建 JS；服务器会执行你信任的本地代码。这里不上传源码、不下载 npm
-                    包，也不运行构建。
+                    插件包由项目自行构建。上传时不执行代码，启用后以 Harness
+                    进程权限运行；只安装可信插件。服务器不下载依赖、不运行安装脚本或源码构建。
                   </p>
-                  <p>修改插件构建产物后需重启服务器，启停操作不会热更新源码。</p>
+                  <p>上传新版本后可切换启用；本地路径的构建产物修改后需重启服务。</p>
                 </div>
               </section>
             </div>

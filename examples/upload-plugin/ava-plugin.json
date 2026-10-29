@@ -1,0 +1,7 @@
+{
+  "name": "上传决策示例",
+  "version": "1.0.0",
+  "entry": "index.mjs",
+  "kind": "provider",
+  "slot": "decision"
+}

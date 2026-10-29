@@ -108,4 +108,6 @@ safe mode 跳过自动激活，不静默修改保存的启用偏好；页面按�
 
 对应 SDK 为 `client.plugins.list/install/action/configure`，支持 AbortSignal。客户端必须使用 Ops 地址与维护 Token，例如 `new AgentClient({ baseURL: 'http://127.0.0.1:3001', token })`；Ops 页面使用同源地址。返回快照不包含已保存的插件参数。
 
-当前仍是进程级 Provider 装配，维护操作会影响这个 Harness 上的全部会话。第一版不提供插件市场、发布目录、多实例共享运行时或不中断的热切换；需要隔离多个客服实例时先部署独立 Harness。
+当前仍是进程级 Provider 装配，维护操作会影响这个 Harness 上的全部会话。当前不提供插件市场、多实例共享运行时或不中断的热切换；需要隔离多个客服实例时先部署独立 Harness。
+
+上传安装已构建的 ZIP 包见 [插件包上传](plugin-upload.md)。本地路径登记保留在开发者折叠入口。

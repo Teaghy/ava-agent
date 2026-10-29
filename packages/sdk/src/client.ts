@@ -31,7 +31,7 @@ export class AgentClient {
     const baseURL = (options.baseURL ?? '').replace(/\/$/, '');
     this.request = async (path, init = {}) => {
       const headers = new Headers(init.headers);
-      headers.set('Content-Type', 'application/json');
+      if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
       if (options.token) headers.set('Authorization', `Bearer ${options.token}`);
       const response = await fetch(`${baseURL}${path}`, { ...init, headers });
       if (!response.ok) {

@@ -42,12 +42,14 @@
     "openai": "^7.45.0",
     "pg": "^8.23.1",
     "pino": "^10.4.0",
+    "yauzl": "^3.4.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@ava/ops": "workspace:*",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",
+    "@types/yauzl": "^3.4.0",
     "drizzle-kit": "^0.31.11",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

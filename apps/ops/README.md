@@ -11,3 +11,5 @@
 运行排查要求 `inspectRuns:true`，插件维护要求 `admin && managePlugins`，两者独立授权。仅有排查权限也能登录 Ops；导航按权限展示。排查默认只查身份所属租户。跨租户通过 `OPS_API_KEYS` 中的 `inspectTenants: ["demo", "other-tenant"]` 显式授权。列表和详情只挂载于独立 Ops 监听，查询记录到结构化日志。响应过滤常见凭据字段、已配置密钥和隐藏推理字段；业务内容仍属于敏感排障数据，仅授权维护人员可见。
 
 使用 PostgreSQL 时运行 `pnpm db:migrate` 应用运行列表索引。自定义 StorageService Provider 需实现 `listRuns(query)`，查询必须按 tenantId 过滤、按创建时间及 runId 倒序、应用 limit/offset，只返回运行摘要。
+
+插件维护默认支持上传 ZIP 安装，初始未启用；本地路径登记位于开发者折叠入口。包格式、限制与版本恢复见 [插件包上传](../../docs/plugin-upload.md)。

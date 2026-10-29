@@ -4,6 +4,25 @@ import { AgentClient } from '../src/index.js';
 afterEach(() => vi.unstubAllGlobals());
 const snapshot = { enabled: true, safeMode: false, plugins: [], providers: [] };
 describe('Plugin management client', () => {
+  it('uploads a ZIP as binary with credentials, cancellation and a size guard', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(snapshot));
+    vi.stubGlobal('fetch', fetcher);
+    const client = new AgentClient({ token: 'platform-token' });
+    const file = new Blob(['zip-test']);
+    const signal = new AbortController().signal;
+    expect(await client.plugins.upload(file, signal)).toEqual(snapshot);
+    const [url, init] = fetcher.mock.calls[0]!;
+    expect(url).toBe('/api/v1/plugins/upload');
+    expect(init?.body).toBe(file);
+    expect(init?.signal).toBe(signal);
+    expect(new Headers(init?.headers).get('content-type')).toBe('application/zip');
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer platform-token');
+    await expect(client.plugins.upload(new Blob())).rejects.toThrow();
+    await expect(
+      client.plugins.upload(new Blob([new Uint8Array(10 * 1024 * 1024 + 1)])),
+    ).rejects.toThrow();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it('uses the platform endpoints with authentication and cancellation', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(snapshot));
     vi.stubGlobal('fetch', fetcher);

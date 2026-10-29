@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { rm } from 'node:fs/promises';
+import { unpackPlugin } from './package.js';
 import type { Fiber, Plugin } from 'cordis';
 import {
   pluginInstallSchema,
@@ -115,31 +117,44 @@ export class PluginManager {
     );
   }
   install(input: PluginInstallRequest): Promise<PluginManagerSnapshot> {
+    return this.serialize(() => this.installRecord(input));
+  }
+  upload(bytes: Uint8Array): Promise<PluginManagerSnapshot> {
     return this.serialize(async () => {
-      const parsed = pluginInstallSchema.safeParse(input);
-      if (!parsed.success) throw new AppError('INVALID_PLUGIN_REQUEST', '插件注册参数无效。', 400);
-      await validateEntry(parsed.data.entry);
-      const record: PluginRecord = { ...parsed.data, id: randomUUID() };
-      if (record.enabled) this.modules.set(record.id, await loadLocalPlugin(record, this.timeout));
-      const next = this.records.map((previous) =>
-        record.enabled && record.slot && previous.slot === record.slot
-          ? { ...previous, enabled: false }
-          : previous,
-      );
-      next.push(record);
-      const active = new Set(this.active);
-      if (record.enabled) {
-        for (const previous of next) if (!previous.enabled) active.delete(previous.id);
-        active.add(record.id);
-      }
+      if (!this.options) throw new Error('Manager disabled');
+      const unpacked = await unpackPlugin(bytes, this.options.statePath);
       try {
-        await this.commit(next, active);
+        return await this.installRecord(unpacked.input);
       } catch (error) {
-        this.modules.delete(record.id);
+        await rm(unpacked.directory, { recursive: true, force: true });
         throw error;
       }
-      return this.snapshot();
     });
+  }
+  private async installRecord(input: PluginInstallRequest): Promise<PluginManagerSnapshot> {
+    const parsed = pluginInstallSchema.safeParse(input);
+    if (!parsed.success) throw new AppError('INVALID_PLUGIN_REQUEST', '插件注册参数无效。', 400);
+    await validateEntry(parsed.data.entry);
+    const record: PluginRecord = { ...parsed.data, id: randomUUID() };
+    if (record.enabled) this.modules.set(record.id, await loadLocalPlugin(record, this.timeout));
+    const next = this.records.map((previous) =>
+      record.enabled && record.slot && previous.slot === record.slot
+        ? { ...previous, enabled: false }
+        : previous,
+    );
+    next.push(record);
+    const active = new Set(this.active);
+    if (record.enabled) {
+      for (const previous of next) if (!previous.enabled) active.delete(previous.id);
+      active.add(record.id);
+    }
+    try {
+      await this.commit(next, active);
+    } catch (error) {
+      this.modules.delete(record.id);
+      throw error;
+    }
+    return this.snapshot();
   }
   action(input: PluginActionRequest): Promise<PluginManagerSnapshot> {
     return this.serialize(async () => {

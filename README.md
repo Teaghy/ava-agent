@@ -1,5 +1,7 @@
 # Ava Agent Harness
 
+智能客服落地的优先级、待办和验收条件见 [智能客服落地待办](docs/customer-service-todo.md)。
+
 以 **Cordis** 为插件内核、自研有限步数 **ReAct Runtime** 为执行核心、**H3** 为 HTTP/SSE Transport 的 TypeScript AI 应用底座。提供客服、知识问答与通用聊天预设，行业知识、业务工具、决策算法和回答策略可通过插件接入。
 
 Node.js **22.12+**、pnpm、ESM、TypeScript strict；测试使用 **Vitest**，lint 使用 **oxlint**，格式化使用 **oxfmt**。
@@ -19,7 +21,7 @@ Web 页面支持发送问题、Markdown 回答、SSE 状态、停止生成、新
 
 `pnpm dev` 构建 Harness、共享包和前端后，由 pnpm 监听 Harness、Web、Protocol、SDK、Shared 的变更。需要 Vite HMR 时分别运行 `pnpm dev:harness` 和 `pnpm dev:web`，浏览器打开 `http://127.0.0.1:5173`。
 
-**维护人员接入插件：** 内置 Harness Ops 默认关闭。配置 `OPS_ENABLED=true` 和独立的 `OPS_API_KEYS` 后，打开 `http://127.0.0.1:3001/`。支持登记独立项目已构建的本地 JS、配置、启停和切换 Provider，重启后恢复。聊天端和业务管理端不提供插件维护；管理 API 只存在于独立维护监听。配置权限、部署和故障恢复见 [Harness Ops 插件维护](docs/plugin-management.md)。
+**维护人员接入插件：** 内置 Harness Ops 默认关闭。配置 `OPS_ENABLED=true` 和独立的 `OPS_API_KEYS` 后，打开 `http://127.0.0.1:3001/`。支持上传已构建的 ZIP 插件包、配置、启停和切换 Provider，重启后恢复；开发者仍可登记本地 JS 路径。包格式和示例见 [插件包上传](docs/plugin-upload.md)。聊天端和业务管理端不提供插件维护；管理 API 只存在于独立维护监听。配置权限、部署和故障恢复见 [Harness Ops 插件维护](docs/plugin-management.md)。
 
 **运行排查：** 同一 Ops 页面切换到“运行排查”（`/#runs`），可按租户、状态、运行 ID、会话及时间查询，查看单次提问的执行轨迹、节点耗时、工具结果与错误。维护人员默认只查所属租户，跨租户须配置 `inspectTenants`；接口只在 Ops 监听开放。启用及存储兼容说明见 [Ops 文档](apps/ops/README.md)。
 

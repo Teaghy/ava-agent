@@ -12,3 +12,5 @@
 `createHarness` 返回 `pluginManager`，程序化场景默认不启用持久管理；CLI bootstrap 使用 `PLUGIN_STATE_PATH` / `PLUGIN_SAFE_MODE` 配置。接口响应不包含插件参数，原生 `Config` 校验继续由 Cordis 执行。
 
 测试见 `tests/plugin-manager.test.ts`，覆盖权限、导入前授权、原生参数、生命周期、Provider 恢复、持久化失败回退、超时恢复门禁、排队拒绝、失效重试和 safe mode。
+
+上传接口 `/api/v1/plugins/upload` 只接受维护身份的 ZIP 原始字节。`package.ts` 使用 yauzl 有界解压，校验 manifest 与路径；manager 在同一串行队列中解压、登记并持久化，失败清理本次目录。上传不执行模块，默认未启用；版本保留在状态文件旁的 packages 目录。详见 [插件包上传](../../../../../docs/plugin-upload.md)。
