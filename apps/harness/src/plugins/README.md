@@ -18,6 +18,7 @@
 | 检索       | [reranker](reranker/README.md)                       | `reranker`，当前为透传实现                              |
 | 工具与校验 | [tools](tools/README.md)                             | `tools`，知识工具、模拟业务工具                         |
 | 工具与校验 | [guard](guard/README.md)                             | `guard`，答案依据与引用校验                             |
+| 工具与校验 | [response-policy](response-policy/README.md)         | `responsePolicy`，可替换的回答证据要求                  |
 | 插件管理   | [plugin-manager](plugin-manager/README.md)           | 本地 JS 的登记、参数、启停、Provider 切换与平台管理 API |
 | 插件维护   | [ops-console](ops-console/README.md)                 | `ops`，默认关闭的独立维护监听、界面与维护鉴权           |
 | 会话与记忆 | [sessions](sessions/README.md)                       | `sessions`，消息、摘要、运行检查点                      |

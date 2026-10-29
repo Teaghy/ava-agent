@@ -1,6 +1,6 @@
 # 客服插件开发
 
-默认 `pnpm dev` 启动完整客服流程；接入新行业时，通过配置和插件替换算法、连接知识库和业务系统。默认 mock 演示使用虚构设备资料，底座接口和默认提示词不限定行业。
+默认 `pnpm dev` 启动客服流程；也可选择知识问答或自由聊天预设，再通过配置和插件替换算法、连接知识库和业务系统。默认 mock 客服演示使用虚构设备资料，应用默认值与覆盖规则见 [应用预设](application-presets.md)。
 
 独立插件项目由维护人员通过 [Harness Ops 插件维护](plugin-management.md) 加载已构建 JS，无需放进 Harness 源码。Ops 默认关闭，独立于客户和业务管理端。日常启动读取根 `ava.config.ts`（开发）或 `.ava/ava.config.js`（生产）作为固定装配，并恢复维护页保存的登记。下面的公开 API 仍可用于程序化装配。
 
@@ -16,17 +16,18 @@
 
 `createHarness(config, options)` 的 `providers` 在启动前选择实现，指定槽位后不挂载该槽位的默认 Provider。每个槽位只能选一个实现。
 
-| 槽位        | 服务接口           | 默认实现                         |
-| ----------- | ------------------ | -------------------------------- |
-| `decision`  | `DecisionService`  | 主模型结构化决策                 |
-| `model`     | `ModelService`     | mock 或 OpenAI Compatible        |
-| `embedding` | `EmbeddingService` | mock 或 OpenAI Compatible        |
-| `reranker`  | `RerankerService`  | 透传                             |
-| `rag`       | `RagService`       | 查询改写、融合、重排、上下文选择 |
-| `memory`    | `MemoryService`    | 内置存储或 Mem0                  |
-| `storage`   | `StorageService`   | 内存或 PostgreSQL                |
-| `cache`     | `CacheService`     | 内存或 Redis                     |
-| `vector`    | `VectorService`    | 内存或 Qdrant                    |
+| 槽位             | 服务接口           | 默认实现                         |
+| ---------------- | ------------------ | -------------------------------- |
+| `decision`       | `DecisionService`  | 主模型结构化决策                 |
+| `model`          | `ModelService`     | mock 或 OpenAI Compatible        |
+| `embedding`      | `EmbeddingService` | mock 或 OpenAI Compatible        |
+| `reranker`       | `RerankerService`  | 透传                             |
+| `rag`            | `RagService`       | 查询改写、融合、重排、上下文选择 |
+| `memory`         | `MemoryService`    | 内置存储或 Mem0                  |
+| `responsePolicy` | `AnswerPolicy`     | 当前预设的回答证据策略           |
+| `storage`        | `StorageService`   | 内存或 PostgreSQL                |
+| `cache`          | `CacheService`     | 内存或 Redis                     |
+| `vector`         | `VectorService`    | 内存或 Qdrant                    |
 
 以下为可运行的无模型决策装配形式：
 
@@ -104,7 +105,7 @@ const capabilities: HarnessPlugin = {
 
 ## 追加行业校验
 
-Runtime 将基础 Guard 声明为强依赖。最终答案验证引用和证据；追问不要求知识证据，但两种响应都必须执行行业策略。行业策略通过 `ctx.guard.register({ name, validate })` 追加，`validate` 第 5 个可选参数为 `responseType`（`final_answer` / `ask_user`），便于区分规则：
+Runtime 将基础 Guard 声明为强依赖。引用真实性不可关闭，证据要求由 `responsePolicy` Provider 决定；追问不要求知识证据，但两种响应都必须执行行业策略。行业策略通过 `ctx.guard.register({ name, validate })` 追加，`validate` 第 5 个可选参数为 `responseType`（`final_answer` / `ask_user`），便于区分规则：
 
 - `validate(answer, citations, state, signal)` 可为同步或异步，返回成功表示通过，抛错阻止答案保存和输出。
 - 依注册顺序执行；重名策略报错。每次校验固定策略列表，每个策略接收独立的数据快照。

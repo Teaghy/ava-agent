@@ -116,6 +116,8 @@ packages/
 
 决策链路：Agent Runtime → `ctx.decision` → 默认 `decision-main-model` → `ctx.model`。Runtime 只管理执行、预算、权限、Guard 和轨迹；默认决策 Provider 使用 ContextBuilder 构建模型上下文。Core 的 `decision/` 明确定义服务、输入/上下文和输出 schema；原 `agent/agent-decision.ts` 保留为兼容导出。
 
+应用预设由服务端的 `APP_PRESET` 或 `HarnessOptions.preset` 选择，提供 `customer-service`、`knowledge`、`chat` 的默认提示词、内置工具与回答策略。基础 Guard 固定验证引用真实性，再执行可替换的 `responsePolicy`，最后执行追加行业策略；两类策略接收独立快照。预设和模型/基础设施的 mock/live 模式独立，客户端只能读取预设，不能按请求修改它。详见 [应用预设](docs/application-presets.md)。
+
 默认 Runtime 通过 `AgentDependencies` 接收领域接口，不依赖 Cordis Context。决策输入和行业校验输入为快照；Runtime 保留权威状态。Guard 为强依赖，基础校验之后顺序等待可释放的行业策略。工具的 `kind: 'retrieval'` 统一控制检索预算与证据分类，支持自定义工具名。停止先取消并等待当前运行，再释放基础设施。
 
 当前默认保留主模型决策行为，不增加额外模型调用。零售示例已提供规则 Decision Provider；专用模型和 Hybrid 可按同一契约替换。粗粒度 Domain 路由是另一项独立能力，尚未实现 `ctx.router`。知识检索仍是 Tool，模型或规则返回的工具选择都不能绕过服务端权限。

@@ -1,0 +1,1 @@
+CREATE INDEX "runs_tenant_created_idx" ON "agent_runs" USING btree ("tenant_id","created_at","id");

@@ -7,3 +7,9 @@
 此插件不进入可管理插件列表，`ops` 服务禁止由管理插件覆盖。Harness 启动时开启监听，任一监听启动失败会清理已启动监听，停止或 Cordis dispose 时关闭。源码开发从 Ops workspace 读取静态资源；发布产物从 `dist/ops` 读取。
 
 同进程不能隔离插件的任意代码行为，也不能在 Harness 进程故障时提供独立恢复能力。部署、凭证、safe mode 和 SDK 说明见 [维护文档](../../../../../docs/plugin-management.md)。
+
+## 运行排查
+
+内置 `runs-api.ts` 在独立 Ops 监听提供 `GET /api/v1/ops/runs/access`、`POST /api/v1/ops/runs/list`、`POST /api/v1/ops/runs/detail`。读取要求独立维护身份 `admin && managePlugins`，目标 tenantId 须为身份所属租户或列入 `inspectTenants`。查询日志记录操作人、目标租户、runId 和授权结果。
+
+列表复用 storage.listRuns，详情复用 Event Store，响应经 `redact.ts` 过滤，不改写原始审计数据。前端位于 Ops 的 `/#runs`，支持历史及失败运行，不依赖聊天页面。运行状态取最后持久化快照；进程意外中断不会被页面自动判断为失败。

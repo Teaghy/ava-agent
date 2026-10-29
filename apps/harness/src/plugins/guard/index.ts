@@ -4,6 +4,7 @@ import { AppError, checkAbort } from '../../core/errors.js';
 export const guardPlugin = {
   name: 'answer-guard',
   provide: ['guard'],
+  inject: ['responsePolicy'],
   apply(ctx: Context) {
     const policies = new Map<string, AnswerPolicy>();
     const guard: GuardService = {
@@ -24,20 +25,14 @@ export const guardPlugin = {
           if (!doc || doc.title !== citation.title || doc.source !== citation.source)
             throw new AppError('INVALID_CITATION', '答案引用无法验证。', 422);
         }
-        if (responseType === 'final_answer' && state.retrievedDocuments.length && !citations.length)
-          throw new AppError('CITATION_REQUIRED', '知识库答案必须提供引用。', 422);
-        if (
-          responseType === 'final_answer' &&
-          !state.retrievedDocuments.length &&
-          !state.observations.some(
-            (o) =>
-              state.toolCalls.some(
-                (call) =>
-                  call.tool === o.tool && call.status === 'completed' && call.kind !== 'retrieval',
-              ) && !('error' in Object(o.result)),
-          )
-        )
-          throw new AppError('LOW_CONFIDENCE', '缺乏足够依据，请补充信息或转人工。', 422);
+        const response = structuredClone({ citations, state });
+        await ctx.responsePolicy.validate(
+          answer,
+          response.citations,
+          response.state,
+          signal,
+          responseType,
+        );
         const selectedPolicies = [...policies.values()];
         for (const policy of selectedPolicies) {
           checkAbort(signal);

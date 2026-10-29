@@ -7,9 +7,11 @@ import { safeSource } from '../../lib/protocol';
 export function Message({
   message,
   onSources,
+  assistantLabel,
 }: {
   message: ChatMessage;
   onSources: (citations: Citation[]) => void;
+  assistantLabel: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
@@ -33,7 +35,7 @@ export function Message({
       <div className="assistant-heading">
         <Brand small />
         <span>Ava</span>
-        <span className="assistant-label">客服助手</span>
+        <span className="assistant-label">{assistantLabel}</span>
       </div>
       {message.content ? (
         <div className="markdown">

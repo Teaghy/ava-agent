@@ -1,6 +1,7 @@
 import { FiberState, type Fiber } from 'cordis';
 import type { Context, Plugin } from './context.js';
 import { AppError } from '../core/errors.js';
+import { applicationPresetSchema, type ApplicationPreset } from '@ava/protocol';
 
 export const providerSlots = [
   'model',
@@ -9,6 +10,7 @@ export const providerSlots = [
   'reranker',
   'memory',
   'rag',
+  'responsePolicy',
   'storage',
   'cache',
   'vector',
@@ -21,6 +23,8 @@ export type HarnessProviders = Partial<Record<Exclude<ProviderSlot, 'model'>, Ha
   model?: HarnessPlugin | false;
 };
 export interface HarnessOptions {
+  /** Server-side application defaults; never accepted from a chat request. */
+  preset?: ApplicationPreset;
   quiet?: boolean;
   providers?: HarnessProviders;
   plugins?: readonly HarnessPlugin[];
@@ -51,6 +55,11 @@ function provisions(plugin: HarnessPlugin): string[] {
   return typeof plugin.provide === 'string' ? [plugin.provide] : (plugin.provide ?? []);
 }
 export function validateExtensions(options: HarnessOptions, mock: boolean): void {
+  if (options.preset !== undefined && !applicationPresetSchema.safeParse(options.preset).success)
+    throw new AppError(
+      'INVALID_APP_PRESET',
+      '应用预设必须为 customer-service、knowledge 或 chat。',
+    );
   if (!mock && options.demoTools)
     throw new AppError('DEMO_TOOLS_FORBIDDEN', 'live 模式不能启用模拟业务工具。');
   if (

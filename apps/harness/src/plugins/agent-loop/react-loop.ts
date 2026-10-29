@@ -91,6 +91,8 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
       { run_id: state.runId, conversation_id: state.conversationId },
       async () => {
         let opened = false;
+        let phase = 'prepare';
+        let phaseStart = performance.now();
         const append = (
           type: Parameters<AgentDependencies['eventStore']['append']>[2],
           payload: unknown,
@@ -130,6 +132,8 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             checkAbort(signal);
             await emit({ type: 'agent.step', data: { step: state.step, phase: 'decision' } });
             const start = performance.now();
+            phase = 'decision';
+            phaseStart = start;
             const decision = decisionSchema.parse(
               await ctx.telemetry.span(
                 'decision.decide',
@@ -172,11 +176,25 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
               'agent decision',
             );
             await append('agent_decision', decision);
+            await append('execution_span', {
+              phase,
+              step: state.step,
+              durationMs: performance.now() - start,
+            });
             if (decision.type !== 'tool_call') {
               const answer = decision.type === 'ask_user' ? decision.question : decision.answer;
               const citations = decision.type === 'final_answer' ? (decision.citations ?? []) : [];
+              phase = 'guard';
+              phaseStart = performance.now();
               await ctx.guard.validate(answer, citations, state, signal, decision.type);
               checkAbort(signal);
+              await append('execution_span', {
+                phase,
+                step: state.step,
+                durationMs: performance.now() - phaseStart,
+              });
+              phase = 'answer';
+              phaseStart = performance.now();
               await ctx.sessions.add(state.conversationId, 'assistant', answer, {
                 citations,
                 runId: state.runId,
@@ -213,6 +231,8 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             let result: unknown;
             let status: 'completed' | 'failed' = 'completed';
             let auditFailure: ToolAuditError | undefined;
+            phase = 'tool';
+            phaseStart = performance.now();
             try {
               result = await ctx.tools.execute(decision.tool, decision.arguments, {
                 principal: input.principal,
@@ -240,7 +260,13 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             state.observations.push({ tool: decision.tool, result });
             if (auditFailure) throw auditFailure;
             state.status = 'running';
-            await append('tool_result', { tool: decision.tool, result, status });
+            await append('tool_result', {
+              tool: decision.tool,
+              result,
+              status,
+              step: state.step,
+              durationMs: performance.now() - phaseStart,
+            });
             if (isRag)
               await append('rag_result', {
                 documents: state.retrievedDocuments.map((d) => d.id),
@@ -257,7 +283,12 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             : publicError(error);
           if (opened) {
             try {
-              await append('error', safe);
+              await append('error', {
+                ...safe,
+                phase,
+                step: state.step,
+                durationMs: performance.now() - phaseStart,
+              });
               await ctx.sessions.checkpoint(state, tenant);
             } catch {
               ctx.telemetry.log(

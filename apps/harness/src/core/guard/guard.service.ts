@@ -11,7 +11,7 @@ export interface GuardService {
   ): Promise<void>;
 }
 
-/** Industry validation for every visible response, after applicable evidence checks. */
+/** Response strategy or additive industry validation; inputs are independent snapshots. */
 export interface AnswerPolicy {
   name: string;
   validate(

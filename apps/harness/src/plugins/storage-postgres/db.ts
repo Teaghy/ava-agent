@@ -1,7 +1,7 @@
 import { type NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { and, eq, desc, asc, sql } from 'drizzle-orm';
+import { and, eq, desc, asc, sql, gte, lte } from 'drizzle-orm';
 import type { StorageService } from '../../core/storage/storage.service.js';
-import type { Conversation as ConversationInfo } from '@ava/protocol';
+import type { Conversation as ConversationInfo, RunQuery, RunSummary } from '@ava/protocol';
 import type { Principal, Metadata } from '../../core/common.types.js';
 import type { Message, ConversationSummary } from '../../core/session/session.types.js';
 import type { AgentState } from '../../core/agent/agent.types.js';
@@ -13,6 +13,34 @@ import { AppError } from '../../core/errors.js';
 import * as s from './schema/index.js';
 export class PostgresStorage implements StorageService {
   constructor(private db: NodePgDatabase<typeof s>) {}
+  async listRuns(q: RunQuery): Promise<RunSummary[]> {
+    return this.db
+      .select({
+        runId: s.runs.id,
+        tenantId: s.runs.tenantId,
+        conversationId: s.runs.conversationId,
+        userId: sql<string>`coalesce(${s.runs.state}->>'userId', '')`,
+        question: sql<string>`left(coalesce(${s.runs.state}->>'goal', ''), 300)`,
+        status: sql<RunSummary['status']>`${s.runs.state}->>'status'`,
+        step: sql<number>`(${s.runs.state}->>'step')::integer`,
+        createdAt: s.runs.createdAt,
+        updatedAt: sql<string>`coalesce((select created_at from agent_events where run_id = ${s.runs.id} and tenant_id = ${s.runs.tenantId} order by sequence desc limit 1), ${s.runs.createdAt})::text`,
+      })
+      .from(s.runs)
+      .where(
+        and(
+          eq(s.runs.tenantId, q.tenantId),
+          q.runId ? eq(s.runs.id, q.runId) : undefined,
+          q.conversationId ? eq(s.runs.conversationId, q.conversationId) : undefined,
+          q.status ? sql`${s.runs.state}->>'status' = ${q.status}` : undefined,
+          q.since ? gte(s.runs.createdAt, q.since) : undefined,
+          q.until ? lte(s.runs.createdAt, q.until) : undefined,
+        ),
+      )
+      .orderBy(desc(s.runs.createdAt), desc(s.runs.id))
+      .limit(q.limit)
+      .offset(q.offset);
+  }
   async assertConversation(id: string, p: Principal): Promise<void> {
     const [row] = await this.db.select().from(s.conversations).where(eq(s.conversations.id, id));
     if (!row) throw new AppError('NOT_FOUND', '会话不存在。', 404);

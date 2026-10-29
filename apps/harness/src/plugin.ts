@@ -1,5 +1,6 @@
 /** Public plugin contracts. No bootstrap or concrete provider is loaded here. */
 export type { Context, Plugin } from './bootstrap/context.js';
+export type { ApplicationPreset } from '@ava/protocol';
 export type * from './core/index.js';
 export type {
   HarnessOptions,

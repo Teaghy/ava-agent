@@ -4,7 +4,6 @@ import {
   ArrowUp,
   ArrowUpRight,
   BookOpen,
-  CircleHelp,
   KeyRound,
   Menu,
   MessageSquare,
@@ -13,13 +12,13 @@ import {
   Settings2,
   ShieldCheck,
   Square,
-  Wrench,
   X,
   LoaderCircle,
 } from 'lucide-react';
 import { Brand } from '../components/Brand';
 import { Message } from '../components/message/Message';
 import { Settings } from '../components/chat/Settings';
+import { presetCopy } from '../lib/presets';
 import { loadClientConfig, loadConversations, loadHistory, sendMessage } from '../services/api';
 import {
   type ChatMessage,
@@ -28,26 +27,6 @@ import {
   type Conversation,
 } from '../lib/protocol';
 
-const starters = [
-  {
-    icon: Wrench,
-    title: '排查设备故障',
-    text: '更换耗材后，一直报 E102',
-    query: '我的 VCD-2000 换完耗材以后一直报 E102，怎么处理？',
-  },
-  {
-    icon: BookOpen,
-    title: '查找操作指引',
-    text: '了解真空校准的前置检查',
-    query: 'VCD-2000 执行真空校准前需要检查什么？',
-  },
-  {
-    icon: CircleHelp,
-    title: '了解故障原因',
-    text: 'E102 真空状态异常是什么意思？',
-    query: 'VCD-2000 的 E102 真空状态异常有哪些可能原因？',
-  },
-];
 const newId = () => crypto.randomUUID();
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : '连接出现问题，请稍后重试。';
@@ -76,6 +55,11 @@ export function ChatPage() {
   const nearBottom = useRef(true);
   const connected = !!config && (!config.authRequired || !!token);
   const maxLength = config?.maxMessageLength ?? 2000;
+  const copy = presetCopy[config?.preset ?? 'customer-service'];
+
+  useEffect(() => {
+    document.title = `Ava · ${copy.label}`;
+  }, [copy.label]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -207,7 +191,7 @@ export function ChatPage() {
             );
             break;
           case 'rag.started':
-            setProgress('正在检索设备知识库');
+            setProgress('正在检索知识库');
             break;
           case 'rag.completed':
             setProgress(
@@ -275,12 +259,12 @@ export function ChatPage() {
         />
       )}
       <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`} aria-label="对话导航">
-        <a className="wordmark" href="/" aria-label="Ava 智能客服首页">
+        <a className="wordmark" href="/" aria-label={`Ava ${copy.label}首页`}>
           <Brand />
           <span>
             ava<span className="wordmark-dot">.</span>
           </span>
-          <span className="wordmark-caption">智能客服</span>
+          <span className="wordmark-caption">{copy.label}</span>
         </a>
         <button className="new-chat-button" onClick={reset}>
           <Plus size={18} />
@@ -328,7 +312,7 @@ export function ChatPage() {
             <ShieldCheck size={19} />
           </div>
           <div className="workspace-copy">
-            <strong>客服工作空间</strong>
+            <strong>{copy.label}工作空间</strong>
             <span>
               <i />
               {config ? '服务已连接' : '正在连接服务'}
@@ -354,7 +338,9 @@ export function ChatPage() {
             >
               <Menu size={20} />
             </button>
-            <span className="topbar-title">{messages.length ? currentTitle : 'Ava 客服助手'}</span>
+            <span className="topbar-title">
+              {messages.length ? currentTitle : `Ava ${copy.label}`}
+            </span>
             <span className="mode-badge">
               <i />
               {config?.mode === 'live' ? '在线服务' : '演示模式'}
@@ -406,17 +392,13 @@ export function ChatPage() {
                     <Brand />
                     <span className="welcome-spark">✳</span>
                   </div>
-                  <span className="eyebrow welcome-eyebrow">YOUR EVERYDAY SUPPORT</span>
+                  <span className="eyebrow welcome-eyebrow">AVA ASSISTANT</span>
                   <h1>
-                    你好，我是 Ava<span>设备问题，我们一起解决。</span>
+                    你好，我是 Ava<span>{copy.tagline}</span>
                   </h1>
-                  <p className="welcome-description">
-                    从一个故障现象开始，我会帮你查找知识、梳理原因，
-                    <br className="desktop-break" />
-                    找到有据可循的解决方法。
-                  </p>
+                  <p className="welcome-description">{copy.description}</p>
                   <div className="starter-grid">
-                    {starters.map(({ icon: Icon, title, text, query }) => (
+                    {copy.starters.map(({ icon: Icon, title, text, query }) => (
                       <button
                         key={title}
                         className="starter-card"
@@ -434,13 +416,20 @@ export function ChatPage() {
                   </div>
                   <div className="welcome-trust">
                     <ShieldCheck size={14} />
-                    基于知识库回答<span>·</span>参考来源可追溯
+                    {copy.trust[0]}
+                    <span>·</span>
+                    {copy.trust[1]}
                   </div>
                 </section>
               ) : (
                 <section className="messages" aria-label="聊天记录">
                   {messages.map((message) => (
-                    <Message key={message.id} message={message} onSources={setSources} />
+                    <Message
+                      key={message.id}
+                      message={message}
+                      onSources={setSources}
+                      assistantLabel={copy.label}
+                    />
                   ))}
                   <div className="progress-line" role="status" aria-live="polite">
                     {busy && (
@@ -495,7 +484,7 @@ export function ChatPage() {
                       if (!busy) void send(draft);
                     }
                   }}
-                  placeholder="描述设备型号、故障现象，或你想了解的问题…"
+                  placeholder={copy.placeholder}
                 />
                 <div className="composer-toolbar">
                   <span className="composer-hint">
@@ -533,9 +522,7 @@ export function ChatPage() {
                 </div>
               </form>
               <p className="composer-footnote">
-                {config?.mode === 'mock'
-                  ? '当前为演示模式 · 试试 VCD-2000 的 E102 故障排查'
-                  : 'Ava 的回答供参考，设备操作请遵循官方安全规程。'}
+                {config?.mode === 'mock' ? copy.demoHint : copy.footnote}
                 <span>Shift + Enter 换行</span>
               </p>
             </div>

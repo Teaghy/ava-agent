@@ -22,6 +22,13 @@
       "when": 1793166152562,
       "tag": "0002_boring_luminals",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793234620160,
+      "tag": "0003_superb_maddog",
+      "breakpoints": true
     }
   ]
 }

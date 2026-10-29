@@ -9,6 +9,7 @@ export type EventType =
   | 'memory_read'
   | 'memory_write'
   | 'checkpoint'
+  | 'execution_span'
   | 'error';
 
 export interface AgentEvent {

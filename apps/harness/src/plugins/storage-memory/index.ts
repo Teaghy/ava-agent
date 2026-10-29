@@ -1,6 +1,6 @@
 import type { Context } from 'cordis';
 import type { AgentEvent } from '../../core/event/agent-event.js';
-import type { Conversation as ConversationInfo } from '@ava/protocol';
+import type { Conversation as ConversationInfo, RunQuery, RunSummary } from '@ava/protocol';
 import type { AgentState } from '../../core/agent/agent.types.js';
 import type { AuditLog } from '../../core/tools/tool.types.js';
 import type { ConversationSummary, Message } from '../../core/session/session.types.js';
@@ -33,6 +33,7 @@ export class InMemoryStorage implements StorageService {
   readonly audits: AuditLog[] = [];
   readonly summaries = new Map<string, ConversationSummary>();
   readonly runs = new Map<string, AgentState>();
+  private runDates = new Map<string, { tenantId: string; createdAt: string }>();
   readonly chunks = new Map<string, RetrievedDocument[]>();
   readonly memories = new Map<string, MemoryItem>();
   async assertConversation(id: string, p: Principal): Promise<void> {
@@ -60,8 +61,42 @@ export class InMemoryStorage implements StorageService {
   async saveSummary(s: ConversationSummary): Promise<void> {
     this.summaries.set(s.conversationId, structuredClone(s));
   }
-  async saveRun(s: AgentState): Promise<void> {
+  async saveRun(s: AgentState, tenantId: string): Promise<void> {
     this.runs.set(s.runId, structuredClone(s));
+    if (!this.runDates.has(s.runId))
+      this.runDates.set(s.runId, { tenantId, createdAt: new Date().toISOString() });
+  }
+  async listRuns(q: RunQuery): Promise<RunSummary[]> {
+    const rows: RunSummary[] = [];
+    for (const [runId, state] of this.runs) {
+      const date = this.runDates.get(runId);
+      if (
+        !date ||
+        date.tenantId !== q.tenantId ||
+        (q.runId && q.runId !== runId) ||
+        (q.conversationId && q.conversationId !== state.conversationId) ||
+        (q.status && q.status !== state.status) ||
+        (q.since && Date.parse(date.createdAt) < Date.parse(q.since)) ||
+        (q.until && Date.parse(date.createdAt) > Date.parse(q.until))
+      )
+        continue;
+      rows.push({
+        runId,
+        tenantId: date.tenantId,
+        conversationId: state.conversationId,
+        userId: state.userId ?? '',
+        question: (state.goal ?? '').slice(0, 300),
+        status: state.status,
+        step: state.step,
+        createdAt: date.createdAt,
+        updatedAt:
+          this.eventRows.findLast((e) => e.runId === runId && e.tenantId === q.tenantId)
+            ?.createdAt ?? date.createdAt,
+      });
+    }
+    return rows
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.runId.localeCompare(a.runId))
+      .slice(q.offset, q.offset + q.limit);
   }
   async appendEvent(e: AgentEvent): Promise<void> {
     if (this.eventRows.some((row) => row.id === e.id))

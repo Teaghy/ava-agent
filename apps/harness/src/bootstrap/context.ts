@@ -20,6 +20,7 @@ declare module 'cordis' {
     memory: C.MemoryService;
     eventStore: C.EventStoreService;
     guard: C.GuardService;
+    responsePolicy: C.AnswerPolicy;
     http: C.HttpService;
     ops: C.HttpService;
     telemetry: C.TelemetryService;

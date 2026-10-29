@@ -2,6 +2,7 @@ import { stat } from 'node:fs/promises';
 import { join, resolve, extname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { z } from 'zod';
+import { applicationPresetSchema } from '@ava/protocol';
 import type { HarnessOptions, HarnessPlugin } from './extensions.js';
 import { AppError } from '../core/errors.js';
 
@@ -20,6 +21,7 @@ const plugin = z.custom<HarnessPlugin>(
 );
 const optionsSchema = z
   .object({
+    preset: applicationPresetSchema.optional(),
     quiet: z.boolean().optional(),
     providers: z.record(z.string(), z.unknown()).optional(),
     plugins: z.array(plugin).optional(),

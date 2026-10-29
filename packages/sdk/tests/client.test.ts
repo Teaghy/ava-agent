@@ -2,6 +2,25 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentClient } from '../src/index.js';
 afterEach(() => vi.unstubAllGlobals());
 describe('AgentClient', () => {
+  it('reads the server preset and defaults older server configs to customer-service', async () => {
+    const config = {
+      mode: 'mock',
+      authRequired: false,
+      memoryProvider: 'storage',
+      persistence: 'memory',
+      maxMessageLength: 2000,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(Response.json({ ...config, preset: 'chat' }))
+        .mockResolvedValueOnce(Response.json(config)),
+    );
+    const client = new AgentClient();
+    expect((await client.config()).preset).toBe('chat');
+    expect((await client.config()).preset).toBe('customer-service');
+  });
   it('shares base URL, auth, and response validation across clients', async () => {
     const fetcher = vi
       .fn<typeof fetch>()

@@ -32,11 +32,12 @@ describe('Application plugin configuration', () => {
     const root = await workspace();
     await writeFile(
       join(root, 'ava.config.ts'),
-      'export default { demoTools: false, systemPrompt: "客服配置" };',
+      'export default { preset: "chat", demoTools: false, systemPrompt: "客服配置" };',
     );
     expect(await loadApplicationConfig({ root, source: true })).toMatchObject({
       demoTools: false,
       systemPrompt: '客服配置',
+      preset: 'chat',
     });
   });
 
@@ -73,16 +74,17 @@ describe('Application plugin configuration', () => {
     ).rejects.toMatchObject({ code: 'APP_CONFIG_NOT_FOUND' });
   });
 
-  it.each(['export default null;', 'export default { plugnis: [] };'])(
-    'rejects an invalid default export: %s',
-    async (source) => {
-      const root = await workspace();
-      await writeFile(join(root, 'ava.config.mjs'), source);
-      await expect(loadApplicationConfig({ root, source: false })).rejects.toMatchObject({
-        code: 'INVALID_APP_CONFIG',
-      });
-    },
-  );
+  it.each([
+    'export default null;',
+    'export default { plugnis: [] };',
+    'export default { preset: "unknown" };',
+  ])('rejects an invalid default export: %s', async (source) => {
+    const root = await workspace();
+    await writeFile(join(root, 'ava.config.mjs'), source);
+    await expect(loadApplicationConfig({ root, source: false })).rejects.toMatchObject({
+      code: 'INVALID_APP_CONFIG',
+    });
+  });
 
   it('reports import failures with the config path and the original cause', async () => {
     const root = await workspace();

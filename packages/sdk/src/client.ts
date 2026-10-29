@@ -11,6 +11,7 @@ import {
 import { streamChat } from './chat.js';
 import { createKnowledgeClient } from './knowledge.js';
 import { createPluginClient } from './plugins.js';
+import { createRunClient } from './runs.js';
 
 export type Request = (path: string, init?: RequestInit) => Promise<Response>;
 export interface ClientOptions {
@@ -22,6 +23,7 @@ export class AgentClient {
   readonly chat;
   readonly knowledge;
   readonly plugins;
+  readonly runs;
   private readonly request: Request;
   constructor(options: ClientOptions = {}) {
     const baseURL = (options.baseURL ?? '').replace(/\/$/, '');
@@ -47,6 +49,7 @@ export class AgentClient {
     };
     this.knowledge = createKnowledgeClient(this.request);
     this.plugins = createPluginClient(this.request);
+    this.runs = createRunClient(this.request);
   }
   async config(signal?: AbortSignal) {
     return configSchema.parse(

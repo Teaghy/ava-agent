@@ -7,6 +7,7 @@ export const pluginSlotSchema = z.enum([
   'reranker',
   'memory',
   'rag',
+  'responsePolicy',
 ]);
 export type PluginSlot = z.infer<typeof pluginSlotSchema>;
 const registration = z

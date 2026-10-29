@@ -11,7 +11,7 @@ import { cacheRedisPlugin } from '../plugins/cache-redis/index.js';
 import { vectorMemoryPlugin } from '../plugins/vector-memory/index.js';
 import { vectorQdrantPlugin } from '../plugins/vector-qdrant/index.js';
 import { modelOpenAIPlugin } from '../plugins/model-openai/index.js';
-import { modelMockPlugin } from '../plugins/model-mock/index.js';
+import { modelMockPlugin, createMockModelPlugin } from '../plugins/model-mock/index.js';
 import { mainModelDecisionPlugin } from '../plugins/decision-main-model/index.js';
 import { embeddingPlugin } from '../plugins/embedding-openai/index.js';
 import { rerankerPlugin } from '../plugins/reranker/index.js';
@@ -44,11 +44,17 @@ import { AppError } from '../core/errors.js';
 import { PluginManager } from '../plugins/plugin-manager/manager.js';
 import { PluginRuntime, type BaseProvider } from '../plugins/plugin-manager/runtime.js';
 import { opsConsolePlugin } from '../plugins/ops-console/index.js';
+import { responsePolicyPlugin } from '../plugins/response-policy/index.js';
+import { applicationPresets } from './presets.js';
 import type { PluginSlot } from '@ava/protocol';
 export async function createHarness(config: Config, options: HarnessOptions = {}) {
   const mock = config.APP_MODE === 'mock';
   validateExtensions(options, mock);
   const providers = options.providers ?? {};
+  const presetName = options.preset ?? config.APP_PRESET;
+  const preset = applicationPresets[presetName];
+  const mockModel =
+    presetName === 'customer-service' ? modelMockPlugin : createMockModelPlugin(presetName);
   const pluginManager = await PluginManager.prepare(
     options.pluginManagement ?? false,
     options.startupTimeoutMs,
@@ -73,7 +79,7 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
   const external = config.APP_MODE === 'live' || config.INFRA_MODE === 'external';
   const prompt =
     options.systemPrompt ??
-    (await readFile(new URL('../prompts/system.md', import.meta.url), 'utf8'));
+    `${await readFile(new URL('../prompts/system.md', import.meta.url), 'utf8')}\n${await readFile(new URL(`../prompts/${preset.prompt}`, import.meta.url), 'utf8')}`;
   const auth = {
     keys: config.API_KEYS,
     allowAnonymous:
@@ -99,7 +105,7 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
             ? () =>
                 ctx.plugin(providers.model as Exclude<typeof providers.model, false | undefined>)
             : mock
-              ? () => ctx.plugin(modelMockPlugin)
+              ? () => ctx.plugin(mockModel)
               : () =>
                   ctx.plugin(modelOpenAIPlugin, {
                     baseURL: config.LLM_BASE_URL,
@@ -138,6 +144,13 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
         config.MEM0_ENABLED ? 'memory-mem0' : 'memory',
       ),
       rag: base('rag', () => ctx.plugin(providers.rag ?? ragPlugin), 'rag'),
+      responsePolicy: base(
+        'responsePolicy',
+        providers.responsePolicy
+          ? () => ctx.plugin(providers.responsePolicy!)
+          : () => ctx.plugin(responsePolicyPlugin, { evidence: preset.evidence }),
+        'response-policy',
+      ),
       decision: base(
         'decision',
         providers.decision
@@ -187,9 +200,11 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       ctx.plugin(knowledgeRegistryPlugin),
       ctx.plugin(knowledgeQdrantPlugin),
       ctx.plugin(knowledgeCasesPlugin),
-      ctx.plugin(knowledgeToolPlugin),
+      ...(preset.knowledgeTools ? [ctx.plugin(knowledgeToolPlugin)] : []),
       ctx.plugin(guardPlugin),
-      ...((options.demoTools ?? mock) ? [ctx.plugin(mockBusinessToolsPlugin)] : []),
+      ...((options.demoTools ?? (mock && preset.demoTools))
+        ? [ctx.plugin(mockBusinessToolsPlugin)]
+        : []),
       (() => {
         const fiber = ctx.plugin(agentLoopPlugin, {
           maxSteps: config.MAX_AGENT_STEPS,
@@ -213,6 +228,14 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
               keys: config.OPS_API_KEYS,
               allowAnonymous: false,
               manager: pluginManager,
+              secrets: [
+                ...Object.keys(config.API_KEYS),
+                ...Object.keys(config.OPS_API_KEYS),
+                config.LLM_API_KEY,
+                config.EMBEDDING_API_KEY,
+                config.MEM0_API_KEY,
+                config.QDRANT_API_KEY,
+              ],
             }),
           ]
         : []),
@@ -220,6 +243,7 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       ctx.plugin(conversationsApiPlugin, auth),
       ctx.plugin(webStaticPlugin, () => ({
         mode: config.APP_MODE,
+        preset: presetName,
         authRequired: !auth.allowAnonymous,
         memoryProvider:
           providers.memory || pluginManager.hasProvider('memory')
@@ -240,7 +264,8 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       )
         throw new AppError('PROVIDER_NOT_READY', `Provider ${slot} 已激活但未发布对应服务。`);
     }
-    if (config.SEED_KNOWLEDGE) await ctx.rag.ingest(demoKnowledge, config.SEED_TENANT_ID);
+    if (config.SEED_KNOWLEDGE && presetName === 'customer-service')
+      await ctx.rag.ingest(demoKnowledge, config.SEED_TENANT_ID);
     ctx.effect(() =>
       ctx.http.get('/health', async () => ({ body: { status: 'ok', mode: config.APP_MODE } })),
     );

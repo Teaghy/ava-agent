@@ -6,3 +6,4 @@ export * from './chat/request.js';
 export * from './knowledge/index.js';
 export * from './error/index.js';
 export * from './plugins/index.js';
+export * from './runs/index.js';

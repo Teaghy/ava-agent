@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { applicationPresetSchema } from '@ava/protocol';
 const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 const principal = z.object({
   tenantId: z.string().min(1),
@@ -6,6 +7,7 @@ const principal = z.object({
   permissions: z.array(z.enum(['READ', 'WRITE', 'CRITICAL'])),
   admin: z.boolean().optional(),
   managePlugins: z.boolean().optional(),
+  inspectTenants: z.array(z.string().min(1).max(200)).max(100).optional(),
 });
 const apiKeys = z
   .string()
@@ -25,6 +27,7 @@ export const configSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     APP_MODE: z.enum(['mock', 'live']).default('mock'),
+    APP_PRESET: applicationPresetSchema.default('customer-service'),
     PORT: z.coerce.number().int().min(0).max(65535).default(3000),
     HOST: z.string().default('127.0.0.1'),
     OPS_ENABLED: bool.default(false),

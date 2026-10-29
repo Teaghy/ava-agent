@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { createHarness } from '../src/bootstrap/plugins.js';
+import type { Context } from '../src/bootstrap/context.js';
 import { loadConfig } from '../src/config/index.js';
 import { principal } from './helpers.js';
 
@@ -76,6 +77,67 @@ async function answer(h: Awaited<ReturnType<typeof createHarness>>) {
 }
 
 describe('Local plugin administration', () => {
+  it('switches a native response policy, rolls invalid config back and restores the preset policy', async () => {
+    const { root, statePath } = await fixture();
+    const entry = await moduleFile(
+      root,
+      'response-policy',
+      `
+      import { z } from ${JSON.stringify(import.meta.resolve('zod'))};
+      export const name = 'external-response-policy'; export const provide = ['responsePolicy'];
+      export const Config = z.object({ allow: z.literal(true) });
+      export function apply(ctx) { ctx.provide('responsePolicy', { name: 'allow', validate() {} }); }
+    `,
+    );
+    const { h, request } = await setup(statePath);
+    await h.ctx.plugin({
+      name: 'industry-review',
+      inject: ['guard'],
+      apply(ctx: Context) {
+        ctx.effect(() =>
+          ctx.guard.register({
+            name: 'deny-blocked',
+            validate(text) {
+              if (text === 'blocked') throw new Error('industry denied');
+            },
+          }),
+        );
+      },
+    });
+    vi.spyOn(h.ctx.decision, 'decide').mockResolvedValue({
+      type: 'final_answer',
+      answer: '通用回答',
+    });
+    await expect(answer(h)).rejects.toMatchObject({ code: 'LOW_CONFIDENCE' });
+    const installed = await request('/install', {
+      name: 'Response policy',
+      entry,
+      kind: 'provider',
+      slot: 'responsePolicy',
+      config: { allow: true },
+    });
+    expect(installed.status).toBe(201);
+    const snapshot = await installed.json();
+    const id = snapshot.plugins[0].id;
+    expect(
+      snapshot.providers.find((p: { slot: string }) => p.slot === 'responsePolicy'),
+    ).toMatchObject({ source: 'plugin', pluginId: id });
+    expect(await answer(h)).toBe('通用回答');
+    vi.spyOn(h.ctx.decision, 'decide').mockResolvedValue({
+      type: 'final_answer',
+      answer: 'blocked',
+    });
+    await expect(answer(h)).rejects.toThrow('industry denied');
+    vi.spyOn(h.ctx.decision, 'decide').mockResolvedValue({
+      type: 'final_answer',
+      answer: '通用回答',
+    });
+    expect((await request('/configure', { id, config: { allow: false } })).status).toBe(400);
+    expect(await answer(h)).toBe('通用回答');
+    expect((await request('/action', { id, action: 'disable' })).status).toBe(200);
+    await expect(answer(h)).rejects.toMatchObject({ code: 'LOW_CONFIDENCE' });
+  });
+
   it('is disabled by default and requires a dedicated platform permission before module loading', async () => {
     const { root, statePath } = await fixture();
     const disabled = await setup();

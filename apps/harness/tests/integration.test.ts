@@ -52,6 +52,22 @@ describe('PostgreSQL + Redis + Qdrant integration (mock LLM, real infrastructure
     expect(events.map((e) => e.type)).toContain('rag_result');
     expect((await harness.ctx.eventStore.recover(result.runId, tenant))?.status).toBe('completed');
     expect(await harness.ctx.eventStore.replay(result.runId, 'other')).toEqual([]);
+    const query = { tenantId: tenant, runId: result.runId, limit: 30, offset: 0 };
+    const runs = await harness.ctx.storage.listRuns(query);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      runId: result.runId,
+      conversationId,
+      status: 'completed',
+      userId: principal.userId,
+    });
+    expect(Number.isFinite(Date.parse(runs[0]!.updatedAt))).toBe(true);
+    expect(await harness.ctx.storage.listRuns({ ...query, tenantId: 'other' })).toEqual([]);
+    expect(await harness.ctx.storage.listRuns({ ...query, status: 'failed' })).toEqual([]);
+    expect(
+      await harness.ctx.storage.listRuns({ ...query, since: '2999-01-01T00:00:00.000Z' }),
+    ).toEqual([]);
+    expect(await harness.ctx.storage.listRuns({ ...query, offset: 1 })).toEqual([]);
   });
   it('Redis locks use owner-checked atomic renewal and release', async () => {
     const cache = harness.ctx.cache;

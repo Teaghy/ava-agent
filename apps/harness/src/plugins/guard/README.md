@@ -5,13 +5,12 @@
 ## 服务与配置
 
 - 提供 `ctx.guard`（[GuardService](../../core/guard/guard.service.ts)）。
-- 无服务依赖和插件参数；Agent 将它声明为强依赖，缺失时不会激活默认 Runtime。
+- 依赖 `responsePolicy`，无插件参数；Agent 将 Guard 声明为强依赖，缺失时不会激活默认 Runtime。
 
 ## 当前校验
 
 - 每条引用的文档 ID、分片 ID、标题和来源必须与本次运行检索文档一致，否则返回 `INVALID_CITATION`。
-- 运行已有检索文档时，最终答案必须包含引用，否则返回 `CITATION_REQUIRED`。
-- 最终答案没有文档，也没有成功的非检索工具观察结果时，返回 `LOW_CONFIDENCE`。
+- 证据和是否必须引用由可替换的 `responsePolicy` 校验。默认客服策略在已有检索文档时要求引用；没有文档或成功非检索工具结果时返回 `LOW_CONFIDENCE`。知识问答和自由聊天使用各自的默认策略，详见 [应用预设](../../../../../docs/application-presets.md)。
 - `ask_user` 不要求知识证据或引用，但仍需经过全部行业策略，不能通过追问分支绕过动作一致性、隐私或承诺校验。
 - 模拟工单的动作一致性规则由 `mock-business-tools` 追加；真实业务插件按自己的工具和结果注册策略。
 
