@@ -5,11 +5,33 @@ afterEach(async () => {
   await Promise.all(harnesses.splice(0).map((h) => h.stop()));
 });
 async function setup(keys?: string) {
-  const h = await makeHarness({ PORT: '0', ...(keys ? { API_KEYS: keys } : {}) });
+  const h = await makeHarness({
+    PORT: '0',
+    API_KEYS:
+      keys ??
+      JSON.stringify({ tester: { tenantId: 'demo', userId: 'alice', permissions: ['READ'] } }),
+  });
   harnesses.push(h);
   return { h, url: `http://127.0.0.1:${await h.start()}` };
 }
 describe('H3 chat transport', () => {
+  it('requires a personal token even in mock mode with no configured keys', async () => {
+    const { h, url } = await setup('{}');
+    const open = vi.spyOn(h.ctx.sessions, 'open');
+    expect(await (await fetch(`${url}/api/v1/client-config`)).json()).toMatchObject({
+      authRequired: true,
+    });
+    for (const [path, method] of [
+      ['/api/v1/chat', 'POST'],
+      ['/api/v1/conversations', 'GET'],
+      ['/api/v1/conversations/history', 'POST'],
+    ]) {
+      expect(
+        (await fetch(url + path, { method, ...(method === 'POST' ? { body: '{}' } : {}) })).status,
+      ).toBe(401);
+    }
+    expect(open).not.toHaveBeenCalled();
+  });
   it('finishes the response successfully even if optional summary storage fails', async () => {
     const { h, url } = await setup();
     vi.spyOn(h.ctx.decision, 'decide').mockResolvedValue({
@@ -19,6 +41,7 @@ describe('H3 chat transport', () => {
     vi.spyOn(h.ctx.sessions, 'summarize').mockRejectedValue(new Error('private summary failure'));
     const response = await fetch(`${url}/api/v1/chat`, {
       method: 'POST',
+      headers: { authorization: 'Bearer tester' },
       body: JSON.stringify({ conversationId: 'http-summary-failure', message: 'hello' }),
     });
     const body = await response.text();
@@ -62,6 +85,7 @@ describe('H3 chat transport', () => {
     );
     const response = await fetch(`${url}/api/v1/chat`, {
       method: 'POST',
+      headers: { authorization: 'Bearer tester' },
       body: JSON.stringify({ conversationId: 'safe-error', message: 'E102' }),
     });
     const body = await response.text();
@@ -69,6 +93,7 @@ describe('H3 chat transport', () => {
     expect(body).not.toContain('secret-provider-detail');
     const large = await fetch(`${url}/api/v1/chat`, {
       method: 'POST',
+      headers: { authorization: 'Bearer tester' },
       body: JSON.stringify({ conversationId: 'large', message: 'x'.repeat(70000) }),
     });
     expect(large.status).toBe(413);
@@ -92,6 +117,7 @@ describe('H3 chat transport', () => {
     );
     const response = await fetch(`${url}/api/v1/chat`, {
       method: 'POST',
+      headers: { authorization: 'Bearer tester' },
       signal: controller.signal,
       body: JSON.stringify({ conversationId: 'disconnect', message: 'E102' }),
     });
@@ -109,6 +135,7 @@ describe('H3 chat transport', () => {
     expect((await fetch(`${url}/health`)).status).toBe(200);
     const response = await fetch(`${url}/api/v1/chat`, {
       method: 'POST',
+      headers: { authorization: 'Bearer tester' },
       body: JSON.stringify({
         conversationId: 'http-e102',
         message: 'VCD-2000 E102 更换耗材后报警',
@@ -125,15 +152,28 @@ describe('H3 chat transport', () => {
     const { url } = await setup();
     const response = await fetch(`${url}/api/v1/chat`, {
       method: 'POST',
+      headers: { authorization: 'Bearer tester' },
       body: JSON.stringify({ conversationId: 'x', message: 'hello', permissions: ['WRITE'] }),
     });
     expect(response.status).toBe(400);
-    expect((await fetch(`${url}/api/v1/knowledge`, { method: 'POST', body: '{}' })).status).toBe(
-      403,
-    );
-    expect((await fetch(`${url}/api/v1/chat`, { method: 'POST', body: 'bad json' })).status).toBe(
-      400,
-    );
+    expect(
+      (
+        await fetch(`${url}/api/v1/knowledge`, {
+          method: 'POST',
+          headers: { authorization: 'Bearer tester' },
+          body: '{}',
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await fetch(`${url}/api/v1/chat`, {
+          method: 'POST',
+          headers: { authorization: 'Bearer tester' },
+          body: 'bad json',
+        })
+      ).status,
+    ).toBe(400);
   });
   it('uses server-side identity and prevents cross-user access', async () => {
     const { url } = await setup(

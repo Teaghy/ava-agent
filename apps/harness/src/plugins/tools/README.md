@@ -36,6 +36,6 @@
 
 [知识工具](built-in/knowledge-search.tool.ts) 从 Principal 获取租户，发送 `rag.started/completed`，并把文档按 ID 合并进运行上下文，保留最近 15 条。查询长度为 1–2000 字符，最多指定 10 个来源。
 
-[业务工具](built-in/business-tools.ts) 只在 mock 模式默认装配，可用 `demoTools: false` 关闭；live 模式不会装配这些工具。它们返回 `mock: true`，不连接真实设备、工单或人工客服。真实业务通过 `options.plugins` 注册，并为写入设计幂等策略。匿名演示身份只有 READ 权限。
+[业务工具](built-in/business-tools.ts) 只在 mock 模式默认装配，可用 `demoTools: false` 关闭；live 模式不会装配这些工具。它们返回 `mock: true`，不连接真实设备、工单或人工客服。真实业务通过 `options.plugins` 注册，并为写入设计幂等策略。每位使用者的工具权限由其 Token 身份确定。
 
 参见 [插件索引](../README.md)。

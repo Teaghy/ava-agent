@@ -21,7 +21,7 @@ OPS_PORT=3001
 OPS_API_KEYS={"replace-with-your-random-maintenance-token":{"tenantId":"platform","userId":"operator","permissions":["READ","WRITE"],"admin":true,"managePlugins":true}}
 ```
 
-修改后重启服务，在 Ops 页面输入该 Token。启用 Ops 时必须至少配置一个同时具有 `admin: true` 和 `managePlugins: true` 的维护身份；维护 Token 不得与 `API_KEYS` 复用，否则拒绝启动。聊天端的客户、业务管理员以及旧平台 Token 都不能访问 Ops，维护 Token 也不能用于聊天业务接口。维护 API 不允许匿名访问，Token 只保存在页面内存中，刷新或离开页面后清除，不写入浏览器存储。
+修改后重启服务，在 Ops 页面输入该 Token。运行排查独立要求 `inspectRuns:true`；如需同时排查，请在示例维护身份上显式增加此字段。启用 Ops 时必须至少配置一个具有 `inspectRuns:true` 或同时具有 `admin:true` 和 `managePlugins:true` 的维护身份；维护 Token 不得与 `API_KEYS` 复用，否则拒绝启动。聊天端的客户、业务管理员以及旧平台 Token 都不能访问 Ops，维护 Token 也不能用于聊天业务接口。维护 API 不允许匿名访问，Token 只保存在页面内存中，刷新或离开页面后清除，不写入浏览器存储。
 
 Ops 页面与维护 API 共用独立监听，默认只绑定本机。远程维护优先使用 SSH 隧道或受限内网网关；需要绑定私网 IP 时配置 `OPS_HOST` 并限制来源，不要把它直接暴露到公网。跨网络传输凭证应在受限网关终止 TLS。仅修改 URL 前缀、隐藏菜单或配置 CORS 不构成访问隔离。
 

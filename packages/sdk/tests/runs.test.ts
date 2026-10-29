@@ -1,6 +1,17 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { AgentClient } from '../src/index.js';
 afterEach(() => vi.unstubAllGlobals());
+it('discovers Ops capabilities without requesting plugin management access', async () => {
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(Response.json({ managePlugins: false, inspectRuns: true }));
+  vi.stubGlobal('fetch', fetcher);
+  expect(await new AgentClient({ token: 'viewer' }).ops.access()).toEqual({
+    managePlugins: false,
+    inspectRuns: true,
+  });
+  expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/ops/access');
+});
 it('queries only Ops run endpoints with validated scope, auth and cancellation', async () => {
   const fetcher = vi
     .fn<typeof fetch>()

@@ -11,7 +11,7 @@ pnpm install
 pnpm dev
 ```
 
-默认 `APP_MODE=mock`，无需数据库、模型密钥或 Docker，监听 `http://127.0.0.1:3000`。**浏览器直接打开此地址即可使用聊天页面**。mock 模式使用真实的 Cordis 插件组合、Agent 循环、工具注册、RAG、上下文构建、Guard 和 SSE；只替换外部 Provider。重启会丢失内存数据。
+默认 `APP_MODE=mock`，无需数据库、模型密钥或 Docker，监听 `http://127.0.0.1:3000`。**先在根 `.env` 配置每位使用者独立的 `API_KEYS`，再在聊天页面输入对应 Token**。mock 模式使用真实的 Cordis 插件组合、Agent 循环、工具注册、RAG、上下文构建、Guard 和 SSE；只替换外部 Provider。重启会丢失内存数据。
 
 Web 页面支持发送问题、Markdown 回答、SSE 状态、停止生成、新建/搜索/恢复会话、查看知识引用，以及移动端布局。服务设置展示当前长期记忆和会话存储方式；需要认证时可输入访问 Token，Token 只保留在当前页面内存中。
 
@@ -75,7 +75,7 @@ pnpm build:web
 
 ```bash
 curl -N http://localhost:3000/api/v1/chat \
-  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <personal-token>' -H 'Content-Type: application/json' \
   -d '{"conversationId":"conv001","message":"我的 VCD-2000 换完耗材以后一直报 E102，怎么处理？"}'
 ```
 
@@ -117,7 +117,9 @@ API_KEYS={"replace-with-a-long-random-token":{"tenantId":"demo","userId":"alice"
 
 `live` 自动使用外部基础设施，不允许静默降级到内存或 mock 模型。`production` 强制 `live` 和非空 API Token 配置。密钥应由部署环境注入。后端配置读取集中在 `apps/harness/src/config/index.ts`，无论从根目录还是子包启动都读取根 `.env`；前端的开发代理端口在自己的 `vite.config.ts` 中配置。
 
-请求使用 `Authorization: Bearer <token>`。Token 在服务端映射到租户、用户和工具权限；请求体不能指定这些字段。未配置 Token 的开发 mock 模式使用固定 `demo/demo-user`，只具有 READ 权限。配置 Token 后关闭匿名访问。
+请求使用 `Authorization: Bearer <token>`。Token 在服务端映射到租户、用户和工具权限；请求体不能指定这些字段。包括开发 mock 在内，所有聊天与会话请求都要求 Token。未配置 `API_KEYS` 时服务可启动，但这些接口统一返回 401；不再使用共享匿名身份。每位使用者应绑定独立的 userId，同公司可共用 tenantId。
+
+每人生成随机 Token、配置只读排障身份和撤销凭证的步骤见 [内部试用身份配置](docs/personal-access.md)。
 
 Compose 只适用于本地开发：PostgreSQL、Redis、Qdrant 的端口均绑定到 `127.0.0.1`。`docker compose stop` 停止服务并保留数据。
 
@@ -220,7 +222,7 @@ Agent Runtime → ctx.decision → decision-main-model → ctx.model
 
 ```bash
 curl http://localhost:3000/api/v1/knowledge \
-  -H 'Authorization: Bearer <admin-token>' -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <ops-inspector-token>' -H 'Content-Type: application/json' \
   -d '{"id":"faq-v1","title":"VCD FAQ","content":"# E102\n\n经审核的排查说明","source":"https://docs.example.com/faq","metadata":{"model":"VCD-2000","errorCode":"E102","version":"1"}}'
 ```
 
@@ -266,12 +268,12 @@ MEM0_API_KEY=your-self-hosted-api-key
 `ctx.eventStore.replay(runId, tenantId)` 返回轨迹；`recover()` 用 Zod 校验最后一个 checkpoint 后返回状态，可用于调试、评估、恢复决策。恢复不会自动重放有副作用的工具。生产接入工单/设备写操作时，Provider 必须实现幂等键及业务系统结果核对，才能安全自动续跑。
 
 ```bash
-curl http://localhost:3000/api/v1/runs/replay \
+curl http://localhost:3001/api/v1/ops/runs/detail \
   -H 'Authorization: Bearer <admin-token>' -H 'Content-Type: application/json' \
-  -d '{"runId":"<run-uuid>"}'
+  -d '{"tenantId":"demo","runId":"<run-uuid>"}'
 ```
 
-接口只允许管理员，并限定当前 Token 的租户。会话、消息、Run、Event 适用于持久审计；Redis 只保存临时态。事件/消息的长期归档、隐私删除及运维角色权限应在正式部署策略中定义。
+轨迹 HTTP 查询仅在 Ops 开放，要求 inspectRuns:true；目标租户须为身份所属租户或列入 inspectTenants。旧业务端 /api/v1/runs/replay 已移除。会话、消息、Run、Event 适用于持久审计；Redis 只保存临时态。事件/消息的长期归档、隐私删除及运维角色权限应在正式部署策略中定义。
 
 ## API / SSE
 

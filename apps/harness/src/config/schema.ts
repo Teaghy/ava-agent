@@ -7,6 +7,7 @@ const principal = z.object({
   permissions: z.array(z.enum(['READ', 'WRITE', 'CRITICAL'])),
   admin: z.boolean().optional(),
   managePlugins: z.boolean().optional(),
+  inspectRuns: z.boolean().optional(),
   inspectTenants: z.array(z.string().min(1).max(200)).max(100).optional(),
 });
 const apiKeys = z
@@ -65,11 +66,14 @@ export const configSchema = z
   })
   .superRefine((c, ctx) => {
     if (c.OPS_ENABLED) {
-      if (!Object.values(c.OPS_API_KEYS).some((p) => p.admin === true && p.managePlugins === true))
+      if (
+        !Object.values(c.OPS_API_KEYS).some(
+          (p) => p.inspectRuns === true || (p.admin === true && p.managePlugins === true),
+        )
+      )
         ctx.addIssue({
           code: 'custom',
-          message:
-            'OPS_ENABLED requires a dedicated OPS_API_KEYS maintainer with admin && managePlugins',
+          message: 'OPS_ENABLED requires OPS_API_KEYS with inspectRuns or admin && managePlugins',
         });
       if (Object.keys(c.OPS_API_KEYS).some((token) => Object.hasOwn(c.API_KEYS, token)))
         ctx.addIssue({ code: 'custom', message: 'OPS_API_KEYS must not reuse API_KEYS tokens' });

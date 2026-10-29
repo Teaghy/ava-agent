@@ -8,6 +8,7 @@ export interface Principal {
   admin?: boolean;
   /** Trusted process-level code loading, separate from tenant administration. */
   managePlugins?: boolean;
+  inspectRuns?: boolean;
   /** Additional tenants this Ops maintainer may inspect; never granted by request input. */
   inspectTenants?: string[];
 }

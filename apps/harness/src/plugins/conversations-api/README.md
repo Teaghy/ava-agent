@@ -5,7 +5,7 @@
 ## 依赖与配置
 
 - 必需：`http`、`storage`；不提供新的 Cordis 服务。
-- 参数为 [AuthConfig](../../core/http/auth.ts)，由 bootstrap 统一传入 Token 映射和匿名开关；鉴权规则与聊天接口相同。
+- 参数为 [AuthConfig](../../core/http/auth.ts)，由 bootstrap 统一传入 Token 映射；鉴权规则与聊天接口相同。
 - 两个路由通过 `ctx.effect` 注册，卸载时注销。
 
 ## 接口

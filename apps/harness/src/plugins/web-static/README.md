@@ -10,7 +10,7 @@
 | 插件参数         | bootstrap 来源                                  |
 | ---------------- | ----------------------------------------------- |
 | `mode`           | `APP_MODE`                                      |
-| `authRequired`   | 当前鉴权配置是否允许匿名                        |
+| `authRequired`   | 始终为 true，聊天需要 Token                     |
 | `memoryProvider` | `MEM0_ENABLED` 决定 `mem0-oss-rest` / `storage` |
 | `persistence`    | 实际基础设施选择决定 `postgres` / `memory`      |
 

@@ -7,6 +7,7 @@ import {
   messageSchema,
   historyRequestSchema,
   errorResponseSchema,
+  opsAccessSchema,
 } from '@ava/protocol';
 import { streamChat } from './chat.js';
 import { createKnowledgeClient } from './knowledge.js';
@@ -24,6 +25,7 @@ export class AgentClient {
   readonly knowledge;
   readonly plugins;
   readonly runs;
+  readonly ops;
   private readonly request: Request;
   constructor(options: ClientOptions = {}) {
     const baseURL = (options.baseURL ?? '').replace(/\/$/, '');
@@ -50,6 +52,10 @@ export class AgentClient {
     this.knowledge = createKnowledgeClient(this.request);
     this.plugins = createPluginClient(this.request);
     this.runs = createRunClient(this.request);
+    this.ops = {
+      access: async (signal?: AbortSignal) =>
+        opsAccessSchema.parse(await (await this.request('/api/v1/ops/access', { signal })).json()),
+    };
   }
   async config(signal?: AbortSignal) {
     return configSchema.parse(

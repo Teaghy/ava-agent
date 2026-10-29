@@ -44,9 +44,11 @@ async function setup() {
       OPS_PORT: '0',
       API_KEYS: JSON.stringify({ customer: principal, business: { ...principal, admin: true } }),
       OPS_API_KEYS: JSON.stringify({
-        operator: { ...maintainer, inspectTenants: ['demo'] },
-        scoped: maintainer,
+        operator: { ...maintainer, inspectRuns: true, inspectTenants: ['demo'] },
+        scoped: { ...maintainer, inspectRuns: true },
         incomplete: { ...maintainer, managePlugins: false },
+        viewer: { tenantId: 'demo', userId: 'reviewer', permissions: [], inspectRuns: true },
+        manager: maintainer,
       }),
     }),
     { quiet: true },
@@ -60,10 +62,56 @@ async function setup() {
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-  return { h, call, principal, publicUrl };
+  return { h, call, principal, publicUrl, opsUrl };
 }
 
 describe('Ops run inspection', () => {
+  it('separates read-only inspection from plugin control and removes public replay', async () => {
+    const { call, publicUrl, opsUrl } = await setup();
+    const headers = (token: string) => ({ authorization: `Bearer ${token}` });
+    expect(
+      await (await fetch(`${opsUrl}/api/v1/ops/access`, { headers: headers('viewer') })).json(),
+    ).toEqual({ managePlugins: false, inspectRuns: true });
+    expect(
+      await (await fetch(`${opsUrl}/api/v1/ops/access`, { headers: headers('manager') })).json(),
+    ).toEqual({ managePlugins: true, inspectRuns: false });
+    expect((await call('list', { tenantId: 'demo' }, 'viewer')).status).toBe(200);
+    expect((await call('access', undefined, 'manager')).status).toBe(403);
+    for (const path of ['', '/install', '/action', '/configure']) {
+      expect(
+        (
+          await fetch(`${opsUrl}/api/v1/plugins${path}`, {
+            method: path ? 'POST' : 'GET',
+            headers: headers('viewer'),
+            ...(path ? { body: '{}' } : {}),
+          })
+        ).status,
+      ).toBe(403);
+    }
+    expect((await fetch(`${opsUrl}/api/v1/plugins`, { headers: headers('manager') })).status).toBe(
+      200,
+    );
+    for (const base of [publicUrl, opsUrl]) {
+      expect(
+        (
+          await fetch(`${base}/api/v1/runs/replay`, {
+            method: 'POST',
+            headers: headers('business'),
+            body: JSON.stringify({ runId: randomUUID() }),
+          })
+        ).status,
+      ).toBe(404);
+    }
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'test',
+        OPS_ENABLED: 'true',
+        OPS_API_KEYS: JSON.stringify({
+          viewer: { tenantId: 'demo', userId: 'reviewer', permissions: [], inspectRuns: true },
+        }),
+      }),
+    ).not.toThrow();
+  });
   it('isolates credentials, listener and tenant scopes before reading storage', async () => {
     const { h, call, publicUrl } = await setup();
     const read = vi.spyOn(h.ctx.storage, 'listRuns');

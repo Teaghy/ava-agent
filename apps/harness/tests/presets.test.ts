@@ -13,7 +13,13 @@ afterEach(async () => {
 });
 async function setup(preset = 'customer-service', options: HarnessOptions = {}, seed = false) {
   const h = await createHarness(
-    loadConfig({ NODE_ENV: 'test', PORT: '0', APP_PRESET: preset, SEED_KNOWLEDGE: String(seed) }),
+    loadConfig({
+      NODE_ENV: 'test',
+      PORT: '0',
+      API_KEYS: JSON.stringify({ tester: principal }),
+      APP_PRESET: preset,
+      SEED_KNOWLEDGE: String(seed),
+    }),
     { ...options, quiet: true },
   );
   harnesses.push(h);
@@ -197,6 +203,7 @@ describe('Application presets and response policies', () => {
     for (const override of [{ preset: 'chat' }, { responsePolicy: 'optional' }]) {
       const response = await fetch(`${url}/api/v1/chat`, {
         method: 'POST',
+        headers: { authorization: 'Bearer tester' },
         body: JSON.stringify({ conversationId: 'override', message: 'hello', ...override }),
       });
       expect(response.status).toBe(400);

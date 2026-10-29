@@ -82,8 +82,6 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
     `${await readFile(new URL('../prompts/system.md', import.meta.url), 'utf8')}\n${await readFile(new URL(`../prompts/${preset.prompt}`, import.meta.url), 'utf8')}`;
   const auth = {
     keys: config.API_KEYS,
-    allowAnonymous:
-      mock && config.NODE_ENV !== 'production' && Object.keys(config.API_KEYS).length === 0,
   };
   const base = (
     slot: PluginSlot,
@@ -226,7 +224,6 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
         ? [
             ctx.plugin(opsConsolePlugin, {
               keys: config.OPS_API_KEYS,
-              allowAnonymous: false,
               manager: pluginManager,
               secrets: [
                 ...Object.keys(config.API_KEYS),
@@ -244,7 +241,7 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       ctx.plugin(webStaticPlugin, () => ({
         mode: config.APP_MODE,
         preset: presetName,
-        authRequired: !auth.allowAnonymous,
+        authRequired: true,
         memoryProvider:
           providers.memory || pluginManager.hasProvider('memory')
             ? 'custom'

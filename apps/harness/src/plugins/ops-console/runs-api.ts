@@ -11,8 +11,7 @@ export const opsRunsApiPlugin = {
   apply(ctx: Context, config: AuthConfig & { secrets?: string[] }) {
     const authorize = (request: HttpRequest) => {
       const p = authenticate(request, config);
-      if (p.admin !== true || p.managePlugins !== true)
-        throw new AppError('FORBIDDEN', '此接口需要平台维护权限。', 403);
+      if (p.inspectRuns !== true) throw new AppError('FORBIDDEN', '此接口需要运行排查权限。', 403);
       return p;
     };
     const scope = (

@@ -122,14 +122,21 @@ describe('Application plugin configuration', () => {
     );
     const options = await loadApplicationConfig({ root, source: false });
     const h = await createHarness(
-      loadConfig({ NODE_ENV: 'test', SEED_KNOWLEDGE: 'false', PORT: '0' }),
+      loadConfig({
+        NODE_ENV: 'test',
+        SEED_KNOWLEDGE: 'false',
+        PORT: '0',
+        API_KEYS: JSON.stringify({
+          tester: { tenantId: 'demo', userId: 'alice', permissions: ['READ'] },
+        }),
+      }),
       { ...options, quiet: true },
     );
     harnesses.push(h);
     const port = await h.start();
     const response = await fetch(`http://127.0.0.1:${port}/api/v1/chat`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: 'Bearer tester' },
       body: JSON.stringify({ conversationId: 'configured', message: '查询订单' }),
     });
     expect(response.ok).toBe(true);

@@ -5,8 +5,8 @@
 ## 依赖与配置
 
 - 必需：`http`、`agent`、`sessions`、`cache`；不提供新的 Cordis 服务。
-- 参数为 [AuthConfig](../../core/http/auth.ts)：`keys` 来自 `API_KEYS`；仅非生产 mock 且未配置任何 Key 时允许匿名。
-- Bearer Token 在服务端映射到 Principal。匿名演示身份为 `demo / demo-user`，仅有 READ 权限。
+- 参数为 [AuthConfig](../../core/http/auth.ts)：`keys` 来自 `API_KEYS`；所有模式都要求独立 Token。
+- Bearer Token 在服务端映射到 Principal。没有共享匿名身份，缺失或无效 Token 返回 401。
 
 ## 接口
 

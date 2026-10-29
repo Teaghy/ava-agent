@@ -1,4 +1,6 @@
 import { z } from 'zod';
+export const opsAccessSchema = z.object({ managePlugins: z.boolean(), inspectRuns: z.boolean() });
+export type OpsAccess = z.infer<typeof opsAccessSchema>;
 
 export const runStatusSchema = z.enum(['running', 'waiting_tool', 'completed', 'failed']);
 const scope = { tenantId: z.string().min(1).max(200) };

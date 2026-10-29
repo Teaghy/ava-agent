@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError } from '@ava/sdk';
+import { AgentClient, ApiError } from '@ava/sdk';
 import type {
   PluginActionRequest,
   PluginInstallRequest,
   PluginManagerSnapshot,
   PluginSlot,
+  OpsAccess,
 } from '@ava/protocol';
 import {
   ArrowUpRight,
@@ -42,8 +43,7 @@ function requestError(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 401)
       return 'Token 无效或已过期，请更换有效的平台维护人员 Token 后重新连接。';
-    if (error.status === 403)
-      return '当前身份没有插件管理权限。请使用同时具有 admin: true 和 managePlugins: true 的平台维护人员 Token；知识库管理员身份无法管理进程插件。';
+    if (error.status === 403) return '当前身份没有执行此操作的维护权限。';
     return error.message;
   }
   if (error instanceof TypeError) return '无法连接服务，请检查网络与服务器状态后重试。';
@@ -54,6 +54,7 @@ export function PluginsPage() {
   const [page, setPage] = useState(location.hash === '#runs' ? 'runs' : 'plugins');
   const [tokenInput, setTokenInput] = useState('');
   const [token, setToken] = useState('');
+  const [access, setAccess] = useState<OpsAccess>();
   const [snapshot, setSnapshot] = useState<PluginManagerSnapshot>();
   const [pending, setPending] = useState('');
   const [error, setError] = useState('');
@@ -70,7 +71,7 @@ export function PluginsPage() {
   const request = useRef<AbortController | null>(null);
   const tokenField = useRef<HTMLInputElement>(null);
   const busy = !!pending;
-  const canManage = !!token && !!snapshot?.enabled && !busy;
+  const canManage = !!token && !!access?.managePlugins && !!snapshot?.enabled && !busy;
 
   useEffect(() => {
     const title = document.title;
@@ -92,7 +93,7 @@ export function PluginsPage() {
 
   const run = async (
     label: string,
-    operation: (signal: AbortSignal) => Promise<PluginManagerSnapshot>,
+    operation: (signal: AbortSignal) => Promise<PluginManagerSnapshot | undefined>,
     onSuccess?: () => void,
   ) => {
     if (request.current) return;
@@ -112,6 +113,7 @@ export function PluginsPage() {
       setError(requestError(cause));
       if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) {
         setToken('');
+        setAccess(undefined);
         setSnapshot(undefined);
         tokenField.current?.focus();
       }
@@ -123,13 +125,28 @@ export function PluginsPage() {
     }
   };
 
+  const loadAccess = async (candidate: string, signal: AbortSignal) => {
+    const next = await new AgentClient({ token: candidate }).ops.access(signal);
+    const plugins = next.managePlugins ? await loadPlugins(candidate, signal) : undefined;
+    if (signal.aborted) return;
+    setAccess(next);
+    if (!next.managePlugins) {
+      location.hash = 'runs';
+      setPage('runs');
+    } else if (!next.inspectRuns) {
+      location.hash = 'plugins';
+      setPage('plugins');
+    }
+    return plugins;
+  };
+
   const connect = (event: FormEvent) => {
     event.preventDefault();
     const candidate = tokenInput.trim();
     if (!candidate || busy) return;
     void run(
       '正在连接管理服务…',
-      (signal) => loadPlugins(candidate, signal),
+      (signal) => loadAccess(candidate, signal),
       () => {
         setToken(candidate);
         setTokenInput('');
@@ -250,12 +267,16 @@ export function PluginsPage() {
           {page === 'runs' ? '运行排查' : '插件管理'}
         </span>
         <nav className="ops-nav" aria-label="维护功能">
-          <a href="#plugins" aria-current={page === 'plugins' ? 'page' : undefined}>
-            插件维护
-          </a>
-          <a href="#runs" aria-current={page === 'runs' ? 'page' : undefined}>
-            运行排查
-          </a>
+          {(!access || access.managePlugins) && (
+            <a href="#plugins" aria-current={page === 'plugins' ? 'page' : undefined}>
+              插件维护
+            </a>
+          )}
+          {(!access || access.inspectRuns) && (
+            <a href="#runs" aria-current={page === 'runs' ? 'page' : undefined}>
+              运行排查
+            </a>
+          )}
         </nav>
       </header>
       <main className="plugins-content" id="plugin-main" tabIndex={-1}>
@@ -297,7 +318,7 @@ export function PluginsPage() {
                 onClick={() =>
                   void run(
                     '正在刷新状态…',
-                    (signal) => loadPlugins(token, signal),
+                    (signal) => loadAccess(token, signal),
                     () => setNotice('已读取服务器当前状态。'),
                   )
                 }
@@ -310,6 +331,7 @@ export function PluginsPage() {
                 disabled={busy}
                 onClick={() => {
                   setToken('');
+                  setAccess(undefined);
                   setSnapshot(undefined);
                   setError('');
                   setNotice('');
@@ -369,7 +391,11 @@ export function PluginsPage() {
             </>
           ) : null}
         </div>
-        {page === 'runs' ? (
+        {access && !(page === 'runs' ? access.inspectRuns : access.managePlugins) ? (
+          <p role="status" className="plugins-feedback">
+            此身份没有当前页面的访问权限，请选择已授权的维护功能。
+          </p>
+        ) : page === 'runs' ? (
           <RunsPanel key={token} token={token} />
         ) : (
           <>
