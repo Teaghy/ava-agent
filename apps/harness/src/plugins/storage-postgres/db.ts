@@ -11,7 +11,14 @@ import type { KnowledgeDocument, RetrievedDocument } from '../../core/rag/retrie
 import type { MemoryItem, RecallOptions } from '../../core/memory/memory.types.js';
 import { AppError } from '../../core/errors.js';
 import * as s from './schema/index.js';
+import { PostgresIdentityStore } from './identity-store.js';
+import { PostgresApplicationStore } from './application-store.js';
+import { sameConversationOwner } from '../../core/session/ownership.js';
+import { knowledgeDocumentKey } from '../../core/rag/knowledge-scope.js';
 export class PostgresStorage implements StorageService {
+  readonly applications: PostgresApplicationStore;
+  readonly applicationScopes = true;
+  readonly identity: PostgresIdentityStore;
   async scanKnowledgeChunks(
     afterId: string | undefined,
     limit: number,
@@ -25,7 +32,10 @@ export class PostgresStorage implements StorageService {
         .limit(limit)
     ).map((row) => row.data);
   }
-  constructor(private db: NodePgDatabase<typeof s>) {}
+  constructor(private db: NodePgDatabase<typeof s>) {
+    this.applications = new PostgresApplicationStore(db);
+    this.identity = new PostgresIdentityStore(db);
+  }
   async listRuns(q: RunQuery): Promise<RunSummary[]> {
     return this.db
       .select({
@@ -57,8 +67,7 @@ export class PostgresStorage implements StorageService {
   async assertConversation(id: string, p: Principal): Promise<void> {
     const [row] = await this.db.select().from(s.conversations).where(eq(s.conversations.id, id));
     if (!row || row.deletedAt) throw new AppError('NOT_FOUND', '会话不存在。', 404);
-    if (row.tenantId !== p.tenantId || row.userId !== p.userId)
-      throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
+    if (!sameConversationOwner(row, p)) throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
   }
   async listConversations(p: Principal, limit: number): Promise<ConversationInfo[]> {
     const updatedAt = sql<string>`coalesce((select max(created_at) from messages where conversation_id = ${s.conversations.id}), ${s.conversations.createdAt})::text`;
@@ -74,6 +83,12 @@ export class PostgresStorage implements StorageService {
         and(
           eq(s.conversations.tenantId, p.tenantId),
           eq(s.conversations.userId, p.userId),
+          p.applicationId
+            ? eq(s.conversations.applicationId, p.applicationId)
+            : isNull(s.conversations.applicationId),
+          p.knowledgeSpaceId
+            ? eq(s.conversations.knowledgeSpaceId, p.knowledgeSpaceId)
+            : isNull(s.conversations.knowledgeSpaceId),
           isNull(s.conversations.deletedAt),
         ),
       )
@@ -81,21 +96,28 @@ export class PostgresStorage implements StorageService {
       .limit(limit);
   }
   async ensureConversation(id: string, p: Principal): Promise<void> {
-    await this.db
-      .insert(s.users)
-      .values({
-        id: JSON.stringify([p.tenantId, p.userId]),
-        tenantId: p.tenantId,
-        externalId: p.userId,
-      })
-      .onConflictDoNothing();
+    if (!p.applicationId)
+      await this.db
+        .insert(s.users)
+        .values({
+          id: JSON.stringify([p.tenantId, p.userId]),
+          tenantId: p.tenantId,
+          externalId: p.userId,
+        })
+        .onConflictDoNothing();
     await this.db
       .insert(s.conversations)
-      .values({ id, tenantId: p.tenantId, userId: p.userId })
+      .values({
+        id,
+        tenantId: p.tenantId,
+        userId: p.userId,
+        applicationId: p.applicationId,
+        knowledgeSpaceId: p.knowledgeSpaceId,
+      })
       .onConflictDoNothing();
     const [row] = await this.db.select().from(s.conversations).where(eq(s.conversations.id, id));
     if (row?.deletedAt) throw new AppError('NOT_FOUND', '会话已删除，请开启新对话。', 404);
-    if (!row || row.tenantId !== p.tenantId || row.userId !== p.userId)
+    if (!row || !sameConversationOwner(row, p))
       throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
   }
   async deleteConversation(id: string, p: Principal): Promise<void> {
@@ -106,8 +128,7 @@ export class PostgresStorage implements StorageService {
         .where(eq(s.conversations.id, id))
         .for('update');
       if (!row || row.deletedAt) throw new AppError('NOT_FOUND', '会话不存在。', 404);
-      if (row.tenantId !== p.tenantId || row.userId !== p.userId)
-        throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
+      if (!sameConversationOwner(row, p)) throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
       await tx
         .update(s.conversations)
         .set({ deletedAt: new Date().toISOString() })
@@ -172,9 +193,9 @@ export class PostgresStorage implements StorageService {
     tenantId: string,
     data: RetrievedDocument[],
   ): Promise<void> {
-    const key = JSON.stringify([tenantId, d.id]);
+    const key = knowledgeDocumentKey(tenantId, d.id, d.knowledgeSpaceId);
     await this.db.transaction(async (tx) => {
-      const values = { ...d, key, tenantId };
+      const values = { ...d, key, tenantId, knowledgeSpaceId: d.knowledgeSpaceId ?? '' };
       await tx
         .insert(s.documents)
         .values(values)
@@ -198,6 +219,7 @@ export class PostgresStorage implements StorageService {
     tenant: string,
     filters: Metadata,
     limit: number,
+    knowledgeSpaceId?: string,
   ): Promise<RetrievedDocument[]> {
     const terms = query.match(/[a-zA-Z0-9-]+|[\u4e00-\u9fff]{1,2}/g)?.slice(0, 32) ?? [];
     if (!terms.length) return [];
@@ -212,6 +234,7 @@ export class PostgresStorage implements StorageService {
       .where(
         and(
           eq(s.chunks.tenantId, tenant),
+          sql`coalesce(${s.chunks.data}->>'knowledgeSpaceId', '') = ${knowledgeSpaceId ?? ''}`,
           sql`${s.chunks.metadata} @> ${JSON.stringify(filters)}::jsonb`,
           sql`${score} > 0`,
         ),
@@ -220,7 +243,11 @@ export class PostgresStorage implements StorageService {
       .limit(limit);
     return rows.map((r) => ({ ...r.data, score: Number(r.score) / terms.length }));
   }
-  async knowledgeChunks(id: string, tenant: string): Promise<RetrievedDocument[]> {
+  async knowledgeChunks(
+    id: string,
+    tenant: string,
+    knowledgeSpaceId?: string,
+  ): Promise<RetrievedDocument[]> {
     return (
       await this.db
         .select({ data: s.chunks.data })
@@ -228,7 +255,7 @@ export class PostgresStorage implements StorageService {
         .where(
           and(
             eq(s.chunks.tenantId, tenant),
-            eq(s.chunks.documentKey, JSON.stringify([tenant, id])),
+            eq(s.chunks.documentKey, knowledgeDocumentKey(tenant, id, knowledgeSpaceId)),
           ),
         )
     ).map((r) => r.data);

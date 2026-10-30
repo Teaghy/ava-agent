@@ -1,6 +1,7 @@
 import type { KnowledgeRegistryService, KnowledgeSource } from '../../core/rag/knowledge-source.js';
 import type { RagRequest, RetrievedDocument } from '../../core/rag/retrieval.types.js';
 import { AppError, checkAbort } from '../../core/errors.js';
+import { sameKnowledgeSpace } from '../../core/rag/knowledge-scope.js';
 
 export class KnowledgeRegistry implements KnowledgeRegistryService {
   private sources = new Map<string, KnowledgeSource>();
@@ -36,6 +37,8 @@ export class KnowledgeRegistry implements KnowledgeRegistryService {
       const documents = await source.search(request);
       if (documents.some((document) => document.tenantId !== request.tenantId))
         throw new AppError('KNOWLEDGE_SCOPE', '知识源返回了不匹配的租户数据。');
+      if (documents.some((document) => !sameKnowledgeSpace(document, request.knowledgeSpaceId)))
+        throw new AppError('KNOWLEDGE_SCOPE', '知识源返回了不匹配的知识空间。');
       rankings.push(
         documents.filter((document) =>
           Object.entries(request.filters ?? {}).every(

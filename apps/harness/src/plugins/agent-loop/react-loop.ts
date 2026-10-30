@@ -71,6 +71,8 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
       runId: randomUUID(),
       conversationId: input.conversationId,
       userId: input.principal.userId,
+      applicationId: input.principal.applicationId,
+      knowledgeSpaceId: input.principal.knowledgeSpaceId,
       goal: input.message,
       entities: {},
       observations: [],
@@ -114,7 +116,8 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
           const recent = await ctx.sessions.recent(state.conversationId);
           const summary = await ctx.sessions.summary(state.conversationId);
           let memories: MemoryItem[] = [];
-          if (ctx.memory) {
+          // An application key represents many people; only conversation context is shared here.
+          if (ctx.memory && !input.principal.applicationId) {
             try {
               memories = await ctx.memory.recall(input.message, {
                 ...input.principal,

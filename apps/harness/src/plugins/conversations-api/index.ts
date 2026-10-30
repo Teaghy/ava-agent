@@ -1,15 +1,24 @@
 import type { Context } from 'cordis';
 import { historyRequestSchema } from '@ava/protocol';
-import { authenticate, type AuthConfig } from '../../core/http/auth.js';
+import { authenticateRequest, type AuthConfig } from '../../core/http/auth.js';
 import { AppError } from '../../core/errors.js';
 import { randomUUID } from 'node:crypto';
 export const conversationsApiPlugin = {
   name: 'conversations-api',
   inject: ['http', 'storage', 'cache'],
   apply(ctx: Context, config: AuthConfig) {
+    const authenticate = async (
+      request: Parameters<typeof authenticateRequest>[0],
+      auth: AuthConfig,
+    ) => {
+      const principal = await authenticateRequest(request, auth);
+      if (principal.allowChat === false)
+        throw new AppError('FORBIDDEN', '此应用凭证没有会话访问权限。', 403);
+      return principal;
+    };
     ctx.effect(() =>
       ctx.http.post('/api/v1/conversations/delete', async (request) => {
-        const principal = authenticate(request, config);
+        const principal = await authenticate(request, config);
         const parsed = historyRequestSchema.safeParse(await request.body());
         if (!parsed.success)
           throw new AppError('INVALID_REQUEST', '需要有效的 conversationId。', 400);
@@ -29,13 +38,13 @@ export const conversationsApiPlugin = {
     );
     ctx.effect(() =>
       ctx.http.get('/api/v1/conversations', async (request) => {
-        const principal = authenticate(request, config);
+        const principal = await authenticate(request, config);
         return { body: { conversations: await ctx.storage.listConversations(principal, 100) } };
       }),
     );
     ctx.effect(() =>
       ctx.http.post('/api/v1/conversations/history', async (request) => {
-        const principal = authenticate(request, config);
+        const principal = await authenticate(request, config);
         const parsed = historyRequestSchema.safeParse(await request.body());
         if (!parsed.success)
           throw new AppError('INVALID_REQUEST', '需要有效的 conversationId。', 400);

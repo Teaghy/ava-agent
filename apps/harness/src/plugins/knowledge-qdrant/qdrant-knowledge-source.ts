@@ -23,12 +23,14 @@ export class QdrantKnowledgeSource implements KnowledgeSource {
         request.filters ?? {},
         12,
         request.signal,
+        request.knowledgeSpaceId,
       ),
       await this.ctx.storage.keywordSearch(
         request.query,
         request.tenantId,
         request.filters ?? {},
         12,
+        request.knowledgeSpaceId,
       ),
     ];
     const documents = rankFusion(rankings);
@@ -38,7 +40,11 @@ export class QdrantKnowledgeSource implements KnowledgeSource {
       if (!published.has(document.documentId))
         published.set(
           document.documentId,
-          await this.ctx.storage.knowledgeChunks(document.documentId, request.tenantId),
+          await this.ctx.storage.knowledgeChunks(
+            document.documentId,
+            request.tenantId,
+            request.knowledgeSpaceId,
+          ),
         );
     checkAbort(request.signal);
     return documents.filter((document) =>
@@ -46,7 +52,7 @@ export class QdrantKnowledgeSource implements KnowledgeSource {
     );
   }
   async ingest(document: KnowledgeDocument, tenantId: string): Promise<number> {
-    const lockKey = `ingest:${JSON.stringify([tenantId, document.id])}`;
+    const lockKey = `ingest:${JSON.stringify([tenantId, document.knowledgeSpaceId ?? '', document.id])}`;
     const token = randomUUID();
     if (!(await this.ctx.cache.acquire(lockKey, token, 120)))
       throw new AppError('INGEST_BUSY', '文档正在导入。', 409);
@@ -59,7 +65,11 @@ export class QdrantKnowledgeSource implements KnowledgeSource {
       );
       if (vectors.length !== chunks.length) throw new Error('Embedding count mismatch');
       // Versioned document IDs are immutable; updating a document uses a new ID.
-      const existing = await this.ctx.storage.knowledgeChunks(document.id, tenantId);
+      const existing = await this.ctx.storage.knowledgeChunks(
+        document.id,
+        tenantId,
+        document.knowledgeSpaceId,
+      );
       if (
         existing.length &&
         (existing.length !== chunks.length ||

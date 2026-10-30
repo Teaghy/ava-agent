@@ -15,6 +15,8 @@ export const conversations = pgTable('conversations', {
   id: text('id').primaryKey(),
   tenantId: text('tenant_id').notNull(),
   userId: text('user_id').notNull(),
+  applicationId: text('application_id'),
+  knowledgeSpaceId: text('knowledge_space_id'),
   deletedAt: timestamp('deleted_at', { withTimezone: true, mode: 'string' }),
   createdAt: time(),
 });

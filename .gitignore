@@ -6,4 +6,5 @@ dist/
 coverage/
 *.log
 .ava/
+.playwright-mcp/
 data/

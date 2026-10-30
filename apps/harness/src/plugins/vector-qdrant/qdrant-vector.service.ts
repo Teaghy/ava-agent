@@ -8,6 +8,7 @@ const payloadSchema = z.object({
   id: z.string(),
   documentId: z.string(),
   tenantId: z.string(),
+  knowledgeSpaceId: z.string().optional(),
   title: z.string(),
   content: z.string(),
   source: z.string().optional(),
@@ -35,6 +36,7 @@ export class QdrantVector implements VectorService {
     filters: Metadata,
     limit: number,
     signal?: AbortSignal,
+    knowledgeSpaceId?: string,
   ): Promise<RetrievedDocument[]> {
     signal?.throwIfAborted();
     const result = await this.client.query(this.collection, {
@@ -44,6 +46,9 @@ export class QdrantVector implements VectorService {
       filter: {
         must: [
           { key: 'tenantId', match: { value: tenant } },
+          knowledgeSpaceId
+            ? { key: 'knowledgeSpaceId', match: { value: knowledgeSpaceId } }
+            : { is_empty: { key: 'knowledgeSpaceId' } },
           ...Object.entries(filters).map(([key, value]) => ({
             key: `metadata.${key}`,
             match: { value },

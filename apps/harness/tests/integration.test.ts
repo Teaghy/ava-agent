@@ -5,6 +5,16 @@ import { loadConfig } from '../src/config/index.js';
 import { createHarness } from '../src/bootstrap/plugins.js';
 import { demoKnowledge } from '../src/fixtures/knowledge.js';
 import type { Principal } from '../src/core/common.types.js';
+import { IdentityService } from '../src/core/identity/identity.service.js';
+import { PostgresIdentityStore } from '../src/plugins/storage-postgres/identity-store.js';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import * as schema from '../src/plugins/storage-postgres/schema/index.js';
+import { applicationKeySchema, applicationPrincipal } from '../src/core/http/application-auth.js';
+import {
+  ApplicationAccessService,
+  credentialHash,
+} from '../src/core/applications/application.service.js';
+import { PostgresApplicationStore } from '../src/plugins/storage-postgres/application-store.js';
 describe('PostgreSQL + Redis + Qdrant integration (mock LLM, real infrastructure)', () => {
   let harness: Awaited<ReturnType<typeof createHarness>>;
   const tenant = `integration-${randomUUID()}`;
@@ -153,6 +163,188 @@ describe('PostgreSQL + Redis + Qdrant integration (mock LLM, real infrastructure
     expect(await harness.ctx.rag.search({ query: 'E102', tenantId: `${tenant}-other` })).toEqual(
       [],
     );
+  });
+  it('persists identity and sessions across connections, isolates tenants and rejects concurrent stale updates', async () => {
+    const identity = new IdentityService(harness.ctx.storage.identity!, harness.ctx.cache);
+    const owner = { ...principal, admin: true };
+    const password = 'integration-password-123456';
+    await identity.create(owner, {
+      userId: owner.userId,
+      displayName: 'Integration admin',
+      role: 'tenant-admin',
+      password,
+    });
+    await identity.create(
+      { ...owner, tenantId: `${tenant}-other` },
+      { userId: owner.userId, displayName: 'Other tenant', role: 'tenant-admin', password },
+    );
+    const login = await identity.login(tenant, owner.userId, password);
+    const pool = new pg.Pool({ connectionString: loadConfig().DATABASE_URL });
+    try {
+      const store = new PostgresIdentityStore(drizzle(pool, { schema }));
+      const reconnected = new IdentityService(store, harness.ctx.cache);
+      expect((await reconnected.resolve(login.token)).principal).toMatchObject({
+        tenantId: tenant,
+        userId: owner.userId,
+        admin: true,
+      });
+      expect(
+        (await store.members(`${tenant}-other`, undefined, 50)).map((m) => m.displayName),
+      ).toEqual(['Other tenant']);
+      const updates = await Promise.all([
+        store.update(tenant, owner.userId, 0, { role: 'agent' }),
+        store.update(tenant, owner.userId, 0, { active: false }),
+      ]);
+      expect(updates.filter(Boolean)).toHaveLength(1);
+      await expect(reconnected.resolve(login.token)).rejects.toMatchObject({
+        code: 'UNAUTHORIZED',
+      });
+      expect((await store.account(`${tenant}-other`, owner.userId))?.version).toBe(0);
+    } finally {
+      await pool.end();
+    }
+  });
+  it('persists application ownership and isolates private knowledge in SQL and Qdrant while retaining legacy data', async () => {
+    const a = applicationPrincipal(
+      applicationKeySchema.parse({
+        tenantId: tenant,
+        applicationId: 'vcd86-a',
+        knowledgeSpaceId: 'vcd86',
+      }),
+    );
+    const b = applicationPrincipal(
+      applicationKeySchema.parse({
+        tenantId: tenant,
+        applicationId: 'vcd86-b',
+        knowledgeSpaceId: 'vcd86',
+      }),
+    );
+    const conversationId = randomUUID();
+    await harness.ctx.storage.ensureConversation(conversationId, a);
+    await harness.ctx.sessions.add(conversationId, 'user', 'private device conversation');
+    const pool = new pg.Pool({ connectionString: loadConfig().DATABASE_URL });
+    try {
+      const { PostgresStorage } = await import('../src/plugins/storage-postgres/db.js');
+      const storage = new PostgresStorage(drizzle(pool, { schema }));
+      await expect(storage.assertConversation(conversationId, { ...a })).resolves.toBeUndefined();
+      await expect(storage.assertConversation(conversationId, b)).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      await expect(
+        storage.deleteConversation(conversationId, { ...a, applicationId: undefined }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(
+        storage.assertConversation(conversationId, { ...a, knowledgeSpaceId: 'vcd55' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect((await storage.listConversations(a, 100))[0]?.id).toBe(conversationId);
+      expect(await storage.listConversations(b, 100)).toEqual([]);
+      expect(
+        (
+          await pool.query('select 1 from users where tenant_id=$1 and external_id=$2', [
+            tenant,
+            a.userId,
+          ])
+        ).rowCount,
+      ).toBe(0);
+    } finally {
+      await pool.end();
+    }
+    const doc = {
+      id: 'shared-document-id',
+      title: 'Legacy',
+      content: 'E102 legacy document.',
+      metadata: {},
+    };
+    await harness.ctx.rag.ingest(doc, tenant);
+    await harness.ctx.rag.ingest(
+      {
+        ...doc,
+        knowledgeSpaceId: 'vcd86',
+        title: 'VCD86',
+        content: 'E102 VCD86 private document.',
+      },
+      tenant,
+    );
+    await harness.ctx.rag.ingest(
+      {
+        ...doc,
+        knowledgeSpaceId: 'vcd55',
+        title: 'VCD55',
+        content: 'E102 VCD55 private document.',
+      },
+      tenant,
+    );
+    const vector = await harness.ctx.embedding.embed('E102');
+    for (const space of [undefined, 'vcd86', 'vcd55']) {
+      const sql = await harness.ctx.storage.keywordSearch('E102', tenant, {}, 100, space);
+      const vectors = await harness.ctx.vector.search(vector, tenant, {}, 100, undefined, space);
+      const rag = await harness.ctx.rag.search({
+        query: 'E102',
+        tenantId: tenant,
+        knowledgeSpaceId: space,
+      });
+      for (const documents of [sql, vectors, rag]) {
+        expect(documents.length).toBeGreaterThan(0);
+        expect(documents.every((d) => d.knowledgeSpaceId === space)).toBe(true);
+      }
+      const published = await harness.ctx.storage.knowledgeChunks(doc.id, tenant, space);
+      expect(published).toHaveLength(1);
+      expect(published[0]?.knowledgeSpaceId).toBe(space);
+    }
+  });
+  it('persists online credentials and shares immediate revocation and application state across database connections', async () => {
+    const owner = { ...principal, admin: true };
+    const service = harness.ctx.applicationAccess;
+    await service.create(owner, {
+      applicationId: 'managed',
+      knowledgeSpaceId: 'manuals',
+      name: 'Managed application',
+    });
+    const issued = await service.issue(owner, {
+      applicationId: 'managed',
+      label: 'Integration credential',
+    });
+    const pool = new pg.Pool({ connectionString: loadConfig().DATABASE_URL });
+    try {
+      const store = new PostgresApplicationStore(drizzle(pool, { schema }));
+      const reconnected = new ApplicationAccessService(store);
+      expect((await reconnected.resolve(issued.secret))?.knowledgeSpaceId).toBe('manuals');
+      expect(JSON.stringify(await store.credential(credentialHash(issued.secret)))).not.toContain(
+        issued.secret,
+      );
+      const outcomes = await Promise.all([
+        store.update(tenant, 'managed', 0, false),
+        store.update(tenant, 'managed', 0, false),
+      ]);
+      expect(outcomes.filter(Boolean)).toHaveLength(1);
+      await expect(service.resolve(issued.secret)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+      await reconnected.update(owner, { applicationId: 'managed', version: 1, active: true });
+      expect((await service.resolve(issued.secret))?.applicationId).toBe('managed');
+      await reconnected.revoke(owner, 'managed', issued.key.id);
+      await expect(service.resolve(issued.secret)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+      const environmentSecret = `integration-environment-${randomUUID()}`;
+      const environment = {
+        [environmentSecret]: applicationKeySchema.parse({
+          tenantId: tenant,
+          applicationId: 'managed',
+          knowledgeSpaceId: 'manuals',
+        }),
+      };
+      await reconnected.importEnvironment(environment);
+      const saved = await store.credential(credentialHash(environmentSecret));
+      await reconnected.revoke(owner, 'managed', saved!.id);
+      await new ApplicationAccessService(
+        new PostgresApplicationStore(drizzle(pool, { schema })),
+      ).importEnvironment(environment);
+      await expect(service.resolve(environmentSecret)).rejects.toMatchObject({
+        code: 'UNAUTHORIZED',
+      });
+      const view = await service.keys(owner, 'managed');
+      expect(view.keys).toHaveLength(2);
+      expect(view.keys.every((key) => !!key.revokedAt)).toBe(true);
+    } finally {
+      await pool.end();
+    }
   });
   it('enforces append-only events at the PostgreSQL boundary', async () => {
     const pool = new pg.Pool({ connectionString: loadConfig().DATABASE_URL });

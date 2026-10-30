@@ -3,6 +3,7 @@ import type { VectorService } from '../../core/vector/vector.service.js';
 import type { VectorPoint } from '../../core/vector/vector.types.js';
 import type { RetrievedDocument } from '../../core/rag/retrieval.types.js';
 import type { Metadata } from '../../core/common.types.js';
+import { sameKnowledgeSpace } from '../../core/rag/knowledge-scope.js';
 export class InMemoryVector implements VectorService {
   readonly points = new Map<string, VectorPoint>();
   async upsert(points: VectorPoint[]): Promise<void> {
@@ -16,11 +17,14 @@ export class InMemoryVector implements VectorService {
     tenant: string,
     filters: Metadata,
     limit: number,
+    _signal?: AbortSignal,
+    knowledgeSpaceId?: string,
   ): Promise<RetrievedDocument[]> {
     return [...this.points.values()]
       .filter(
         (p) =>
           p.document.tenantId === tenant &&
+          sameKnowledgeSpace(p.document, knowledgeSpaceId) &&
           Object.entries(filters).every(([k, v]) => p.document.metadata[k] === v),
       )
       .map((p) => ({

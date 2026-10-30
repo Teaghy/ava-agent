@@ -6,3 +6,7 @@ await cp(new URL('../../ops/dist', import.meta.url), new URL('../dist/ops', impo
   recursive: true,
   force: true,
 });
+await cp(new URL('../../admin/dist', import.meta.url), new URL('../dist/admin', import.meta.url), {
+  recursive: true,
+  force: true,
+});

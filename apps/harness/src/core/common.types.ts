@@ -5,7 +5,11 @@ export interface Principal {
   tenantId: string;
   userId: string;
   permissions: ToolPermission[];
+  applicationId?: string;
+  knowledgeSpaceId?: string;
+  allowChat?: boolean;
   admin?: boolean;
+  manageKnowledge?: boolean;
   /** Trusted process-level code loading, separate from tenant administration. */
   managePlugins?: boolean;
   inspectRuns?: boolean;

@@ -54,6 +54,10 @@ import { responsePolicyPlugin } from '../plugins/response-policy/index.js';
 import { applicationPresets } from './presets.js';
 import type { PluginSlot } from '@ava/protocol';
 import type { Fiber } from 'cordis';
+import type { AuthConfig } from '../core/http/auth.js';
+import { localIdentityPlugin } from '../plugins/local-identity/index.js';
+import { assertSameOrigin, cookieToken } from '../plugins/local-identity/cookies.js';
+import { applicationAccessPlugin } from '../plugins/application-access/index.js';
 export async function createHarness(config: Config, options: HarnessOptions = {}) {
   const mock = config.APP_MODE === 'mock';
   validateExtensions(options, mock);
@@ -122,8 +126,31 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
   const prompt =
     options.systemPrompt ??
     `${await readFile(new URL('../prompts/system.md', import.meta.url), 'utf8')}\n${await readFile(new URL(`../prompts/${preset.prompt}`, import.meta.url), 'utf8')}`;
-  const auth = {
+  const auth: AuthConfig = {
     keys: config.API_KEYS,
+    resolveApplication: (token) => ctx.applicationAccess.resolve(token),
+    ...(config.LOCAL_AUTH_ENABLED
+      ? {
+          session: async (request) => {
+            if (request.method !== 'GET' && request.method !== 'HEAD')
+              assertSameOrigin(request, config.NODE_ENV === 'production');
+            return (await ctx.identity.resolve(cookieToken(request))).principal;
+          },
+          validatePrincipal: async (principal) => {
+            if (principal.applicationId) return principal;
+            const account = await ctx.identity.store.account(principal.tenantId, principal.userId);
+            if (!account) return principal;
+            if (!account.active) throw new AppError('UNAUTHORIZED', '账号已停用。', 401);
+            return {
+              ...principal,
+              admin: principal.admin === true && account.role === 'tenant-admin',
+              manageKnowledge:
+                account.role !== 'agent' &&
+                (principal.admin === true || principal.manageKnowledge === true),
+            };
+          },
+        }
+      : {}),
   };
   const answerPrompt = `${options.systemPrompt ?? `你是${presetName === 'customer-service' ? '产品与售后客服' : presetName === 'knowledge' ? '知识库问答助手' : '通用对话助手'}。`}\n${await readFile(new URL('../prompts/answer.md', import.meta.url), 'utf8')}`;
   const base = (
@@ -282,6 +309,14 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
         return fiber;
       })(),
       ctx.plugin(httpH3Plugin),
+      ctx.plugin(applicationAccessPlugin, {
+        auth,
+        environment: config.APPLICATION_KEYS,
+        reservedKeys: [...Object.keys(config.API_KEYS), ...Object.keys(config.OPS_API_KEYS)],
+      }),
+      ...(config.LOCAL_AUTH_ENABLED
+        ? [ctx.plugin(localIdentityPlugin, { auth, secure: config.NODE_ENV === 'production' })]
+        : []),
       ctx.plugin(chatApiPlugin, {
         ...auth,
         getAgent: () => ctx.agent,
@@ -303,6 +338,7 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
         mode: config.APP_MODE,
         preset: presetName,
         authRequired: true,
+        localAuthEnabled: config.LOCAL_AUTH_ENABLED,
         memoryProvider:
           providers.memory || pluginManager.hasProvider('memory')
             ? 'custom'
@@ -314,6 +350,18 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       ...(options.plugins ?? []).map((plugin) => application(ctx.plugin(plugin))),
     ];
     await awaitPlugins(ctx, fibers, options.startupTimeoutMs ?? 30000);
+    if (
+      (config.APP_MODE === 'live' || config.NODE_ENV === 'production') &&
+      !Object.keys(config.API_KEYS).length &&
+      !config.LOCAL_AUTH_ENABLED &&
+      !(await ctx.applicationAccess.hasActiveKey())
+    )
+      throw new AppError('MISSING_AUTH_CREDENTIALS', '请配置个人凭证、本地登录或有效的应用凭证。');
+    if (Object.keys(config.APPLICATION_KEYS).length && ctx.storage.applicationScopes !== true)
+      throw new AppError(
+        'APPLICATION_STORAGE_UNSUPPORTED',
+        '当前存储未声明支持应用会话与知识空间隔离。',
+      );
     await runtime.ready();
     for (const slot of providerSlots) {
       if (

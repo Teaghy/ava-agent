@@ -5,6 +5,7 @@ export const configSchema = z.object({
   mode: z.enum(['mock', 'live']),
   preset: applicationPresetSchema.default('customer-service'),
   authRequired: z.boolean(),
+  localAuthEnabled: z.boolean().default(false),
   memoryProvider: z.enum(['storage', 'mem0-oss-rest', 'custom']),
   persistence: z.enum(['memory', 'postgres', 'custom']),
   maxMessageLength: z.number().int().positive(),

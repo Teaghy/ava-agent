@@ -14,6 +14,8 @@ import { createKnowledgeClient } from './knowledge.js';
 import { createPluginClient } from './plugins.js';
 import { createRunClient } from './runs.js';
 import { createModelClient } from './models.js';
+import { createIdentityClient } from './identity.js';
+import { createApplicationClient } from './applications.js';
 
 export type Request = (path: string, init?: RequestInit) => Promise<Response>;
 export interface ClientOptions {
@@ -28,6 +30,8 @@ export class AgentClient {
   readonly runs;
   readonly ops;
   readonly models;
+  readonly identity;
+  readonly applications;
   private readonly request: Request;
   constructor(options: ClientOptions = {}) {
     const baseURL = (options.baseURL ?? '').replace(/\/$/, '');
@@ -55,6 +59,8 @@ export class AgentClient {
     this.plugins = createPluginClient(this.request);
     this.runs = createRunClient(this.request);
     this.models = createModelClient(this.request);
+    this.identity = createIdentityClient(this.request);
+    this.applications = createApplicationClient(this.request);
     this.ops = {
       access: async (signal?: AbortSignal) =>
         opsAccessSchema.parse(await (await this.request('/api/v1/ops/access', { signal })).json()),

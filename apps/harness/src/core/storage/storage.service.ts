@@ -7,6 +7,10 @@ import type { ConversationSummary, Message } from '../session/session.types.js';
 import type { AuditLog } from '../tools/tool.types.js';
 import type { Conversation as ConversationInfo, RunQuery, RunSummary } from '@ava/protocol';
 export interface StorageService {
+  applications?: import('../applications/application-store.js').ApplicationStore;
+  /** Explicit opt-in: enforces application ownership and knowledge-space partitioning. */
+  applicationScopes?: boolean;
+  identity?: import('../identity/identity-store.js').IdentityStore;
   scanKnowledgeChunks?(afterId: string | undefined, limit: number): Promise<RetrievedDocument[]>;
   listRuns(query: RunQuery): Promise<RunSummary[]>;
   listConversations(principal: Principal, limit: number): Promise<ConversationInfo[]>;
@@ -26,12 +30,17 @@ export interface StorageService {
     tenantId: string,
     chunks: RetrievedDocument[],
   ): Promise<void>;
-  knowledgeChunks(documentId: string, tenantId: string): Promise<RetrievedDocument[]>;
+  knowledgeChunks(
+    documentId: string,
+    tenantId: string,
+    knowledgeSpaceId?: string,
+  ): Promise<RetrievedDocument[]>;
   keywordSearch(
     query: string,
     tenantId: string,
     filter: Metadata,
     limit: number,
+    knowledgeSpaceId?: string,
   ): Promise<RetrievedDocument[]>;
   remember(item: MemoryItem): Promise<void>;
   recall(owner: RecallOptions): Promise<MemoryItem[]>;

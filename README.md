@@ -16,9 +16,9 @@ pnpm install
 pnpm dev
 ```
 
-默认 `APP_MODE=mock`，无需数据库、模型密钥或 Docker，监听 `http://127.0.0.1:3000`。**先在根 `.env` 配置每位使用者独立的 `API_KEYS`，再在聊天页面输入对应 Token**。mock 模式使用真实的 Cordis 插件组合、Agent 循环、工具注册、RAG、上下文构建、Guard 和 SSE；只替换外部 Provider。重启会丢失内存数据。
+默认 `APP_MODE=mock`，无需数据库、模型密钥或 Docker，监听 `http://127.0.0.1:3000`。先在根 `.env` 配置每位使用者独立的 `API_KEYS`，再在聊天页面输入对应 Token；也可开启 [本地账号登录与成员管理](docs/local-identity.md)。mock 模式使用真实的 Cordis 插件组合、Agent 循环、工具注册、RAG、上下文构建、Guard 和 SSE；只替换外部 Provider。重启会丢失内存数据。
 
-Web 页面支持发送问题、Markdown 回答、SSE 状态、停止生成、新建/搜索/恢复会话、查看知识引用，以及移动端布局。服务设置展示当前长期记忆和会话存储方式；需要认证时可输入访问 Token，Token 保存在当前标签页的 sessionStorage 中，刷新后自动恢复；可在设置中清除。
+Web 页面支持发送问题、Markdown 回答、SSE 状态、停止生成、新建/搜索/恢复会话、查看知识引用，以及移动端布局。服务设置展示当前长期记忆和会话存储方式；支持可选本地账号登录、退出与修改密码，也保留访问 Token。Token 保存在当前标签页的 sessionStorage 中，账号会话使用 HttpOnly Cookie，刷新后恢复。开启 `LOCAL_AUTH_ENABLED=true` 后，`/admin/` 提供租户内成员管理，模型与插件维护仍在独立 Ops。
 
 每次请求在回答下显示处理阶段、等待动画和实时用时，结束或停止后固定本次耗时；该计时仅保留在当前页面，不写入历史消息。live 模式默认使用 `ANSWER_STREAMING=true`：模型先返回简短的 `answer_ready` 决策，独立 AnswerService 再生成最终正文；普通知识问答在引用和依据预检后实时发送 `answer.delta`。执行过业务工具或配置额外行业审核时，改为完整生成、校验后发送。设为 false 可恢复完整决策回答的旧模式。
 
@@ -55,7 +55,7 @@ apps/
     src/components/           # chat、message、citation、Brand
     src/services/             # SDK → 界面适配
     src/lib/                  # 仅 UI 类型
-  admin/                      # @ava/admin：管理端骨架，尚无页面/启动脚本
+  admin/                      # @ava/admin：可选业务管理示例，登录与成员权限
   ops/                        # @ava/ops：维护人员界面，由 Harness 内置插件托管
 packages/
   protocol/                   # @ava/protocol：chat、citation、knowledge、error、config
@@ -130,11 +130,13 @@ QDRANT_COLLECTION=knowledge
 API_KEYS={"replace-with-a-long-random-token":{"tenantId":"demo","userId":"alice","permissions":["READ","WRITE"],"admin":true}}
 ```
 
-`live` 自动使用外部基础设施，不允许静默降级到内存或 mock 模型。`production` 强制 `live` 和非空 API Token 配置。密钥应由部署环境注入。后端配置读取集中在 `apps/harness/src/config/index.ts`，无论从根目录还是子包启动都读取根 `.env`；前端的开发代理端口在自己的 `vite.config.ts` 中配置。
+`live` 自动使用外部基础设施，不允许静默降级到内存或 mock 模型。`production` 强制 `live`，并要求个人 Token、应用 Key 或开启本地账号登录；本地登录在生产环境需要 HTTPS。密钥应由部署环境注入。后端配置读取集中在 `apps/harness/src/config/index.ts`，无论从根目录还是子包启动都读取根 `.env`；前端的开发代理端口在自己的 `vite.config.ts` 中配置。
 
-请求使用 `Authorization: Bearer <token>`。Token 在服务端映射到租户、用户和工具权限；请求体不能指定这些字段。包括开发 mock 在内，所有聊天与会话请求都要求 Token。未配置 `API_KEYS` 时服务可启动，但这些接口统一返回 401；不再使用共享匿名身份。每位使用者应绑定独立的 userId，同公司可共用 tenantId。
+请求通过 `Authorization: Bearer <token>` 或可选的本地登录会话认证。身份在服务端映射到租户、用户或应用及其权限；请求体不能指定这些字段。包括开发 mock 在内，所有聊天与会话请求都要求有效身份。未开启本地登录且未配置 `API_KEYS`、`APPLICATION_KEYS` 时，这些接口统一返回 401，不使用共享匿名身份。个人身份按 userId 隔离，应用身份按 applicationId 隔离，同公司可共用 tenantId。
 
 每人生成随机 Token、配置只读排障身份和撤销凭证的步骤见 [内部试用身份配置](docs/personal-access.md)。
+
+其他后台或设备可使用应用 Key 接入，由接入方自行管理用户。业务后台 `/admin/` 的“应用与凭证”支持创建应用、一次性签发 Key、设置权限与有效期、即时撤销和停用；已有 `APPLICATION_KEYS` 启动时导入，之后以数据库状态为准。Key 绑定稳定 applicationId 和 knowledgeSpaceId，会话按应用隔离、知识按空间隔离；多个设备可共享知识空间，不共享会话。轮换不改变数据归属，也不授予 Ops 权限。配置、迁移与会话责任见 [应用 Key 接入](docs/application-access.md)。
 
 Compose 只适用于本地开发：PostgreSQL、Redis、Qdrant 的端口均绑定到 `127.0.0.1`。`docker compose stop` 停止服务并保留数据。
 
@@ -363,7 +365,7 @@ for await (const event of client.chat.stream({
 }
 ```
 
-SDK 同时提供 `config()`、`conversations()`、`history()`、`knowledge.ingest()` 和 `plugins.list/install/action/configure()`，支持 AbortSignal。身份由 Token 决定，管理接口仍由 Harness 校验对应权限。HTTP 错误与 SSE error 抛出异常；缺失 answer.completed 被视为流中断。
+SDK 同时提供 `config()`、`conversations()`、`history()`、`knowledge.ingest()`、`identity.*` 和 `plugins.list/install/action/configure()`。身份由 Token 或同源登录会话决定，管理接口由 Harness 校验对应权限。HTTP 错误与 SSE error 抛出异常；缺失 answer.completed 被视为流中断。
 
 ## How to Add a Vector Store
 

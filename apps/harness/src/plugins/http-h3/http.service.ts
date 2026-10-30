@@ -118,7 +118,9 @@ export class H3HttpService implements HttpService {
             if (size > maxBytes) throw new AppError('BODY_TOO_LARGE', '请求体超过允许大小。', 413);
             return Buffer.concat(chunks);
           };
+          setHeaders(event, { 'cache-control': 'no-store' });
           const response = await handler({
+            method: event.method,
             header: (name) => getHeader(event, name),
             signal: controller.signal,
             bytes: readBytes,

@@ -1,4 +1,9 @@
 import { z } from 'zod';
+export const knowledgeSpaceIdSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^[A-Za-z0-9_.-]+$/);
 const metadata = z
   .object({
     product: z.string().max(200).optional(),
@@ -13,6 +18,7 @@ const metadata = z
 export const knowledgeDocumentSchema = z
   .object({
     id: z.string().min(1).max(100),
+    knowledgeSpaceId: knowledgeSpaceIdSchema.optional(),
     title: z.string().min(1).max(300),
     content: z.string().trim().min(1).max(50000),
     source: z.string().url().optional(),

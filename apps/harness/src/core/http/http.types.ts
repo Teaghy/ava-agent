@@ -5,6 +5,7 @@ export interface StreamEvent {
 }
 
 export interface HttpRequest {
+  method?: string;
   body(): Promise<unknown>;
   bytes?(maxBytes: number): Promise<Uint8Array>;
   header(name: string): string | undefined;

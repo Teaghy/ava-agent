@@ -5,3 +5,5 @@ export * from './agent-event.js';
 export * from './knowledge.js';
 export * from './tool-audit.js';
 export * from './memory.js';
+export * from './identity.js';
+export * from './applications.js';

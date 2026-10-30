@@ -40,5 +40,10 @@ export async function createQdrantVector(c: {
     field_schema: 'keyword',
     wait: true,
   });
+  await client.createPayloadIndex(c.collection, {
+    field_name: 'knowledgeSpaceId',
+    field_schema: 'keyword',
+    wait: true,
+  });
   return new QdrantVector(client, c.collection);
 }

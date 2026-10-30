@@ -28,6 +28,7 @@ import {
   sendMessage,
 } from '../services/api';
 import { readToken, saveToken } from '../services/token';
+import { AgentClient, ApiError, type Identity } from '@ava/sdk';
 import {
   type ChatMessage,
   type Citation,
@@ -43,6 +44,8 @@ export function ChatPage() {
   const [connectError, setConnectError] = useState('');
   const [reload, setReload] = useState(0);
   const [token, setToken] = useState(readToken);
+  const [identity, setIdentity] = useState<Identity>();
+  const sessionIdentityKey = useRef('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -63,7 +66,7 @@ export function ChatPage() {
   const textarea = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
-  const connected = !!config && (!config.authRequired || !!token);
+  const connected = !!config && (!config.authRequired || !!token || !!identity);
   const maxLength = config?.maxMessageLength ?? 2000;
   const copy = presetCopy[config?.preset ?? 'customer-service'];
 
@@ -86,7 +89,7 @@ export function ChatPage() {
     return () => controller.abort();
   }, [reload]);
   const refresh = useCallback(async () => {
-    if (!config || (config.authRequired && !token)) return;
+    if (!config || (config.authRequired && !token && !identity)) return;
     const version = identityVersion.current;
     try {
       const list = await loadConversations(token);
@@ -94,7 +97,7 @@ export function ChatPage() {
     } catch (error) {
       if (version === identityVersion.current) setNotice(errorText(error));
     }
-  }, [config, token]);
+  }, [config, token, identity?.tenantId, identity?.userId]);
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -265,9 +268,56 @@ export function ChatPage() {
     reset();
     setConversations([]);
     setToken(value);
+    if (value) {
+      setIdentity(undefined);
+      sessionIdentityKey.current = '';
+    }
     if (!saveToken(value)) setNotice('浏览器无法保存会话凭证，刷新后需要重新填写 Token。');
     if (value === token) void refresh();
   };
+  const applyIdentity = (value?: Identity) => {
+    const key = value ? JSON.stringify([value.tenantId, value.userId]) : '';
+    if (key !== sessionIdentityKey.current) {
+      identityVersion.current++;
+      reset();
+      setConversations([]);
+      sessionIdentityKey.current = key;
+    }
+    setIdentity(value);
+  };
+  useEffect(() => {
+    if (!config?.localAuthEnabled || token) return;
+    const controller = new AbortController();
+    let checking = false;
+    const check = async () => {
+      if (checking) return;
+      checking = true;
+      const version = identityVersion.current;
+      try {
+        const result = await new AgentClient().identity.me(controller.signal);
+        if (!controller.signal.aborted && version === identityVersion.current)
+          applyIdentity(result);
+      } catch (error) {
+        if (
+          !controller.signal.aborted &&
+          version === identityVersion.current &&
+          error instanceof ApiError &&
+          error.status === 401
+        )
+          applyIdentity();
+      } finally {
+        checking = false;
+      }
+    };
+    void check();
+    window.addEventListener('focus', check);
+    const timer = window.setInterval(check, 30000);
+    return () => {
+      controller.abort();
+      window.removeEventListener('focus', check);
+      window.clearInterval(timer);
+    };
+  }, [config?.localAuthEnabled, token]);
   const removeConversation = async () => {
     if (!deleteTarget || deletingId || (busy && deleteTarget.id === conversationId)) return;
     const version = identityVersion.current;
@@ -425,10 +475,10 @@ export function ChatPage() {
             <button onClick={() => setReload((n) => n + 1)}>重新连接</button>
           </div>
         )}
-        {config?.authRequired && !token && (
+        {config?.authRequired && !token && !identity && (
           <div className="connection-banner">
             <KeyRound size={16} />
-            此服务需要访问 Token。
+            {config.localAuthEnabled ? '请登录工作空间后开始对话。' : '此服务需要访问 Token。'}
             <button onClick={() => setSettingsOpen(true)}>
               连接服务
               <ArrowUpRight size={13} />
@@ -633,6 +683,11 @@ export function ChatPage() {
         token={token}
         onClose={() => setSettingsOpen(false)}
         onApply={applyToken}
+        identity={identity}
+        onIdentityChange={(value) => {
+          applyToken('');
+          applyIdentity(value);
+        }}
       />
     </div>
   );

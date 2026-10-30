@@ -25,7 +25,8 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "identity:admin": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "@ava/protocol": "workspace:*",
@@ -46,6 +47,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@ava/admin": "workspace:*",
     "@ava/ops": "workspace:*",
     "@types/node": "^22.20.5",
     "@types/pg": "^8.23.1",

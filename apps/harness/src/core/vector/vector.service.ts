@@ -8,6 +8,7 @@ export interface VectorService {
     filter: Metadata,
     limit: number,
     signal?: AbortSignal,
+    knowledgeSpaceId?: string,
   ): Promise<RetrievedDocument[]>;
   upsert(points: VectorPoint[]): Promise<void>;
   delete(ids: string[]): Promise<void>;

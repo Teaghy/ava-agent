@@ -4,6 +4,8 @@ import type { KnowledgeSource, KnowledgeRegistryService } from '../core/rag/know
 import type * as C from '../core/index.js';
 declare module 'cordis' {
   interface Context {
+    applicationAccess: import('../core/applications/application.service.js').ApplicationAccessService;
+    identity: import('../core/identity/identity.service.js').IdentityService;
     agent: C.AgentService;
     decision: C.DecisionService;
     answer: C.AnswerService;

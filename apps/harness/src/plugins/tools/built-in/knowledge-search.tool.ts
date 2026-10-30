@@ -1,5 +1,7 @@
 import type { Context } from 'cordis';
 import { z } from 'zod';
+import { sameKnowledgeSpace } from '../../../core/rag/knowledge-scope.js';
+import { AppError } from '../../../core/errors.js';
 
 export const knowledgeToolPlugin = {
   name: 'knowledge-tools',
@@ -28,6 +30,7 @@ export const knowledgeToolPlugin = {
               query: input.query,
               sources: name === 'case_search' ? ['cases'] : input.sources,
               tenantId: context.principal.tenantId,
+              knowledgeSpaceId: context.principal.knowledgeSpaceId,
               filters: {
                 ...input.filters,
                 ...(name === 'case_search' ? { category: 'case' } : {}),
@@ -37,6 +40,14 @@ export const knowledgeToolPlugin = {
               ),
               signal: context.signal,
             });
+            if (
+              documents.some(
+                (document) =>
+                  document.tenantId !== context.principal.tenantId ||
+                  !sameKnowledgeSpace(document, context.principal.knowledgeSpaceId),
+              )
+            )
+              throw new AppError('KNOWLEDGE_SCOPE', '检索结果超出应用允许的知识范围。');
             context.state.retrievedDocuments = [
               ...new Map(
                 [...context.state.retrievedDocuments, ...documents].map((d) => [d.id, d]),

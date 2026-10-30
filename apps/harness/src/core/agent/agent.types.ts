@@ -16,6 +16,8 @@ export interface AgentState {
   runId: string;
   conversationId: string;
   userId?: string;
+  applicationId?: string;
+  knowledgeSpaceId?: string;
   goal?: string;
   intent?: string;
   entities: Record<string, unknown>;

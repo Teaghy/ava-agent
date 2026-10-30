@@ -1,18 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, KeyRound, Database, ShieldCheck } from 'lucide-react';
 import type { ClientConfig } from '../../lib/protocol';
+import type { Identity } from '@ava/sdk';
+import { AccountSettings } from './AccountSettings';
 export function Settings({
   open,
   config,
   token,
   onClose,
   onApply,
+  identity,
+  onIdentityChange,
 }: {
   open: boolean;
   config?: ClientConfig;
   token: string;
   onClose: () => void;
   onApply: (token: string) => void;
+  identity?: Identity;
+  onIdentityChange: (identity?: Identity) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState(token);
@@ -75,52 +81,58 @@ export function Settings({
           </p>
         </div>
       </div>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          onApply(draft.trim());
-          onClose();
-        }}
-      >
-        <label htmlFor="api-token">
-          <KeyRound size={15} />
-          服务访问 Token{!config?.authRequired && <span>（当前可留空）</span>}
-        </label>
-        <input
-          id="api-token"
-          type="password"
-          autoComplete="off"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={
-            config?.authRequired ? '输入管理员提供的访问 Token' : '本地演示模式无需 Token'
-          }
-        />
-        <p className="settings-note">
-          Token 保存在当前标签页会话中，刷新后自动恢复。更换身份会清空当前对话视图。
-        </p>
-        <div className="dialog-footer">
-          {token && (
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => {
-                setDraft('');
-                onApply('');
-                onClose();
-              }}
-            >
-              清除 Token
+      {config?.localAuthEnabled && (
+        <AccountSettings identity={identity} onChange={onIdentityChange} />
+      )}
+      <details open={!config?.localAuthEnabled || !!token}>
+        <summary>使用 API Token 连接</summary>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onApply(draft.trim());
+            onClose();
+          }}
+        >
+          <label htmlFor="api-token">
+            <KeyRound size={15} />
+            服务访问 Token{!config?.authRequired && <span>（当前可留空）</span>}
+          </label>
+          <input
+            id="api-token"
+            type="password"
+            autoComplete="off"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={
+              config?.authRequired ? '输入管理员提供的访问 Token' : '本地演示模式无需 Token'
+            }
+          />
+          <p className="settings-note">
+            Token 保存在当前标签页会话中，刷新后自动恢复。更换身份会清空当前对话视图。
+          </p>
+          <div className="dialog-footer">
+            {token && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setDraft('');
+                  onApply('');
+                  onClose();
+                }}
+              >
+                清除 Token
+              </button>
+            )}
+            <button type="button" className="secondary-button" onClick={onClose}>
+              取消
             </button>
-          )}
-          <button type="button" className="secondary-button" onClick={onClose}>
-            取消
-          </button>
-          <button className="primary-button" type="submit">
-            应用连接
-          </button>
-        </div>
-      </form>
+            <button className="primary-button" type="submit">
+              应用连接
+            </button>
+          </div>
+        </form>
+      </details>
     </dialog>
   );
 }

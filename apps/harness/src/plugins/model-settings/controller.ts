@@ -81,6 +81,7 @@ export class ModelSettingsController {
     });
     this.secrets = [
       ...Object.keys(config.API_KEYS),
+      ...Object.keys(config.APPLICATION_KEYS),
       ...Object.keys(config.OPS_API_KEYS),
       config.LLM_API_KEY,
       config.EMBEDDING_API_KEY,

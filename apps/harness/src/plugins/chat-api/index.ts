@@ -1,6 +1,6 @@
 import type { Context } from 'cordis';
 import { chatRequestSchema } from '@ava/protocol';
-import { authenticate, type AuthConfig } from '../../core/http/auth.js';
+import { authenticateRequest as authenticate, type AuthConfig } from '../../core/http/auth.js';
 import { AppError } from '../../core/errors.js';
 import type { AgentService } from '../../core/agent/agent.service.js';
 export const chatApiPlugin = {
@@ -12,12 +12,14 @@ export const chatApiPlugin = {
   ) {
     ctx.effect(() =>
       ctx.http.post('/api/v1/chat', async (request) => {
-        const principal = authenticate(request, config);
+        const principal = await authenticate(request, config);
+        if (principal.allowChat === false)
+          throw new AppError('FORBIDDEN', '此应用凭证没有对话权限。', 403);
         if (config.isPaused())
           throw new AppError('PLUGIN_CHANGE_IN_PROGRESS', '插件正在变更，请稍后重试。', 503);
         if (
           !(await ctx.cache.rateLimit(
-            `rate:${JSON.stringify([principal.tenantId, principal.userId])}`,
+            `rate:${JSON.stringify([principal.tenantId, principal.applicationId ? ['application', principal.applicationId] : principal.userId])}`,
             30,
             60,
           ))

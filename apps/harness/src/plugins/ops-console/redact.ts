@@ -5,6 +5,7 @@ export function redactTrace(value: unknown, secrets: string[] = [], depth = 0): 
     let text = value;
     for (const secret of secrets) if (secret) text = text.replaceAll(secret, '[REDACTED]');
     text = text
+      .replace(/\bava_app_[A-Za-z0-9_-]{43}\b/g, '[REDACTED]')
       .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 [REDACTED]')
       .replace(/([?&](?:api[_-]?key|token|password|secret)=)[^&#\s]+/gi, '$1[REDACTED]')
       .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1[REDACTED]@');

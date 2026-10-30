@@ -1,11 +1,13 @@
 import { z } from 'zod';
 import { applicationPresetSchema, modelCompatibilitySchema } from '@ava/protocol';
+import { applicationKeySchema } from '../core/http/application-auth.js';
 const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 const principal = z.object({
   tenantId: z.string().min(1),
   userId: z.string().min(1),
   permissions: z.array(z.enum(['READ', 'WRITE', 'CRITICAL'])),
   admin: z.boolean().optional(),
+  manageKnowledge: z.boolean().optional(),
   managePlugins: z.boolean().optional(),
   inspectRuns: z.boolean().optional(),
   inspectTenants: z.array(z.string().min(1).max(200)).max(100).optional(),
@@ -20,6 +22,20 @@ const apiKeys = z
       ctx.addIssue({
         code: 'custom',
         message: 'API keys must be a JSON object of tokens to principals',
+      });
+      return z.NEVER;
+    }
+  });
+const applicationKeys = z
+  .string()
+  .default('{}')
+  .transform((value, ctx) => {
+    try {
+      return z.record(z.string().min(32).max(256), applicationKeySchema).parse(JSON.parse(value));
+    } catch {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'APPLICATION_KEYS must map random keys (32–256 characters) to application scopes',
       });
       return z.NEVER;
     }
@@ -59,6 +75,8 @@ export const configSchema = z
     MEM0_URL: z.string().url().default('http://localhost:8888'),
     MEM0_API_KEY: z.string().default(''),
     API_KEYS: apiKeys,
+    APPLICATION_KEYS: applicationKeys,
+    LOCAL_AUTH_ENABLED: bool.default(false),
     SEED_KNOWLEDGE: bool.default(true),
     SEED_TENANT_ID: z.string().default('demo'),
     OTEL_ENABLED: bool.default(false),
@@ -70,6 +88,22 @@ export const configSchema = z
     RUN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(90000).default(90000),
   })
   .superRefine((c, ctx) => {
+    const applications = new Map<string, string>();
+    for (const [token, key] of Object.entries(c.APPLICATION_KEYS)) {
+      if (Object.hasOwn(c.API_KEYS, token) || Object.hasOwn(c.OPS_API_KEYS, token))
+        ctx.addIssue({
+          code: 'custom',
+          message: 'APPLICATION_KEYS must not reuse personal or Ops tokens',
+        });
+      const identity = JSON.stringify([key.tenantId, key.applicationId]);
+      const previous = applications.get(identity);
+      if (previous !== undefined && previous !== key.knowledgeSpaceId)
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Keys for the same application must bind the same knowledge space',
+        });
+      applications.set(identity, key.knowledgeSpaceId);
+    }
     if (c.OPS_ENABLED) {
       if (
         !Object.values(c.OPS_API_KEYS).some(
@@ -83,11 +117,6 @@ export const configSchema = z
       if (Object.keys(c.OPS_API_KEYS).some((token) => Object.hasOwn(c.API_KEYS, token)))
         ctx.addIssue({ code: 'custom', message: 'OPS_API_KEYS must not reuse API_KEYS tokens' });
     }
-    if (
-      (c.APP_MODE === 'live' || c.NODE_ENV === 'production') &&
-      Object.keys(c.API_KEYS).length === 0
-    )
-      ctx.addIssue({ code: 'custom', message: 'Live/production mode requires API_KEYS' });
     if (c.NODE_ENV === 'production' && c.APP_MODE === 'mock')
       ctx.addIssue({ code: 'custom', message: 'Production must use live infrastructure' });
     if (c.APP_MODE === 'live' && c.INFRA_MODE === 'memory')

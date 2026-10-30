@@ -9,7 +9,14 @@ import type { MemoryItem, RecallOptions } from '../../core/memory/memory.types.j
 import type { Principal, Metadata } from '../../core/common.types.js';
 import type { StorageService } from '../../core/storage/storage.service.js';
 import { AppError } from '../../core/errors.js';
+import { MemoryIdentityStore } from './identity-store.js';
+import { MemoryApplicationStore } from './application-store.js';
+import { sameConversationOwner } from '../../core/session/ownership.js';
+import { knowledgeDocumentKey, sameKnowledgeSpace } from '../../core/rag/knowledge-scope.js';
 export class InMemoryStorage implements StorageService {
+  readonly applications = new MemoryApplicationStore();
+  readonly applicationScopes = true;
+  readonly identity = new MemoryIdentityStore();
   async scanKnowledgeChunks(
     afterId: string | undefined,
     limit: number,
@@ -28,10 +35,7 @@ export class InMemoryStorage implements StorageService {
   async listConversations(p: Principal, limit: number): Promise<ConversationInfo[]> {
     return [...this.conversations]
       .filter(
-        ([id, owner]) =>
-          !this.deletedConversations.has(id) &&
-          owner.tenantId === p.tenantId &&
-          owner.userId === p.userId,
+        ([id, owner]) => !this.deletedConversations.has(id) && sameConversationOwner(owner, p),
       )
       .map(([id]) => {
         const messages = this.messageRows.filter((m) => m.conversationId === id);
@@ -58,14 +62,13 @@ export class InMemoryStorage implements StorageService {
     const old = this.conversations.get(id);
     if (!old || this.deletedConversations.has(id))
       throw new AppError('NOT_FOUND', '会话不存在。', 404);
-    if (old.tenantId !== p.tenantId || old.userId !== p.userId)
-      throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
+    if (!sameConversationOwner(old, p)) throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
   }
   async ensureConversation(id: string, p: Principal): Promise<void> {
     if (this.deletedConversations.has(id))
       throw new AppError('NOT_FOUND', '会话已删除，请开启新对话。', 404);
     const old = this.conversations.get(id);
-    if (old && (old.tenantId !== p.tenantId || old.userId !== p.userId))
+    if (old && !sameConversationOwner(old, p))
       throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
     this.conversations.set(id, structuredClone(p));
     if (!this.conversationDates.has(id)) this.conversationDates.set(id, new Date().toISOString());
@@ -143,23 +146,35 @@ export class InMemoryStorage implements StorageService {
     tenant: string,
     chunks: RetrievedDocument[],
   ): Promise<void> {
-    this.chunks.set(JSON.stringify([tenant, d.id]), structuredClone(chunks));
+    this.chunks.set(
+      knowledgeDocumentKey(tenant, d.id, d.knowledgeSpaceId),
+      structuredClone(chunks),
+    );
   }
-  async knowledgeChunks(id: string, tenant: string): Promise<RetrievedDocument[]> {
-    return structuredClone(this.chunks.get(JSON.stringify([tenant, id])) ?? []);
+  async knowledgeChunks(
+    id: string,
+    tenant: string,
+    knowledgeSpaceId?: string,
+  ): Promise<RetrievedDocument[]> {
+    return structuredClone(
+      this.chunks.get(knowledgeDocumentKey(tenant, id, knowledgeSpaceId)) ?? [],
+    );
   }
   async keywordSearch(
     query: string,
     tenant: string,
     filter: Metadata,
     limit: number,
+    knowledgeSpaceId?: string,
   ): Promise<RetrievedDocument[]> {
     const terms = query.toLowerCase().match(/[a-z0-9-]+|[\u4e00-\u9fff]{1,2}/g) ?? [];
     return [...this.chunks.values()]
       .flat()
       .filter(
         (d) =>
-          d.tenantId === tenant && Object.entries(filter).every(([k, v]) => d.metadata[k] === v),
+          d.tenantId === tenant &&
+          sameKnowledgeSpace(d, knowledgeSpaceId) &&
+          Object.entries(filter).every(([k, v]) => d.metadata[k] === v),
       )
       .map((d) => ({
         ...d,

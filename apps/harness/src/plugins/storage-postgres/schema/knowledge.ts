@@ -8,12 +8,13 @@ export const documents = pgTable(
     key: text('key').primaryKey(),
     id: text('id').notNull(),
     tenantId: text('tenant_id').notNull(),
+    knowledgeSpaceId: text('knowledge_space_id').notNull().default(''),
     title: text('title').notNull(),
     content: text('content').notNull(),
     source: text('source'),
     metadata: jsonb('metadata').$type<Record<string, string>>().notNull(),
   },
-  (t) => [uniqueIndex('documents_tenant_id_idx').on(t.tenantId, t.id)],
+  (t) => [uniqueIndex('documents_tenant_space_id_idx').on(t.tenantId, t.knowledgeSpaceId, t.id)],
 );
 
 export const chunks = pgTable(

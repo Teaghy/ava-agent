@@ -3,6 +3,16 @@ import type { RuntimePluginView } from '@ava/protocol';
 
 type Metadata = Pick<RuntimePluginView, 'label' | 'description' | 'category'>;
 const metadata: Record<string, Metadata> = {
+  'application-access': {
+    label: '应用接入',
+    description: '管理应用凭证、即时撤销与知识空间绑定。',
+    category: 'transport',
+  },
+  'local-identity': {
+    label: '本地身份',
+    description: '提供业务账号登录、可撤销会话与租户内成员管理。',
+    category: 'transport',
+  },
   'model-compatibility': {
     label: '模型兼容',
     description: '按模型与服务地址匹配消息格式、JSON 和流式参数规则。',

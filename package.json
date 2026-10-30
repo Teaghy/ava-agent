@@ -17,6 +17,7 @@
     "db:generate": "pnpm --filter @ava/harness db:generate",
     "db:migrate": "pnpm --filter @ava/harness db:migrate",
     "seed": "pnpm --filter @ava/harness... build && pnpm --filter @ava/harness seed",
+    "identity:admin": "pnpm --filter @ava/protocol build && pnpm --filter @ava/harness identity:admin",
     "dev:server": "pnpm dev:harness",
     "dev:web": "pnpm --filter @ava/sdk... build && pnpm --filter @ava/web dev:hmr",
     "build:server": "pnpm build:harness",

@@ -8,3 +8,5 @@ export * from './error/index.js';
 export * from './plugins/index.js';
 export * from './runs/index.js';
 export * from './models/index.js';
+export * from './identity/index.js';
+export * from './applications/index.js';

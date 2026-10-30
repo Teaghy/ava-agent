@@ -12,7 +12,12 @@ export const sessionsPlugin = {
         await ctx.storage.ensureConversation(id, principal);
         await ctx.cache.set(
           `session:${id}`,
-          { tenantId: principal.tenantId, userId: principal.userId },
+          {
+            tenantId: principal.tenantId,
+            userId: principal.userId,
+            applicationId: principal.applicationId,
+            knowledgeSpaceId: principal.knowledgeSpaceId,
+          },
           3600,
         );
       },

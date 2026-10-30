@@ -51,6 +51,8 @@ const managed = new Set<string>([
   'telemetry',
   'pluginManager',
   'modelCompatibility',
+  'identity',
+  'applicationAccess',
 ]);
 function provisions(plugin: HarnessPlugin): string[] {
   return typeof plugin.provide === 'string' ? [plugin.provide] : (plugin.provide ?? []);
