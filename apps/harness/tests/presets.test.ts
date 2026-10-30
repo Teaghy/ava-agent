@@ -37,6 +37,64 @@ const state: AgentState = {
 };
 
 describe('Application presets and response policies', () => {
+  it('returns a normal scoped reply instead of releasing an unsupported customer-service answer', async () => {
+    const h = await setup();
+    vi.spyOn(h.ctx.decision, 'decide').mockResolvedValue({ type: 'final_answer', answer: '1+1=2' });
+    const events: string[] = [];
+    const result = await h.ctx.agent.run(
+      { conversationId: 'out-of-scope', message: '1+1等于多少', principal },
+      async (event) => {
+        events.push(event.type);
+      },
+    );
+    expect(result.status).toBe('ask_user');
+    expect(result.answer).toContain('服务范围');
+    expect(result.answer).not.toContain('1+1=2');
+    expect(result.citations).toEqual([]);
+    expect(events).toContain('answer.completed');
+    const trace = await h.ctx.eventStore.replay(result.runId, 'demo');
+    expect(trace.some((e) => e.type === 'error')).toBe(false);
+    expect(trace).toContainEqual(
+      expect.objectContaining({
+        type: 'execution_span',
+        payload: expect.objectContaining({
+          phase: 'guard',
+          outcome: 'scope_reply',
+          reason: 'LOW_CONFIDENCE',
+        }),
+      }),
+    );
+    const messages = await h.ctx.sessions.recent('out-of-scope');
+    expect(messages.findLast((m) => m.role === 'assistant')?.content).toBe(result.answer);
+  });
+
+  it('validates the fallback against industry policies before saving or emitting it', async () => {
+    const h = await setup();
+    vi.spyOn(h.ctx.decision, 'decide').mockResolvedValue({
+      type: 'final_answer',
+      answer: 'unsupported',
+    });
+    h.ctx.guard.register({
+      name: 'review',
+      validate() {
+        throw new AppError('REVIEW_REQUIRED', '需要审核。', 422);
+      },
+    });
+    const emitted: string[] = [];
+    await expect(
+      h.ctx.agent.run(
+        { conversationId: 'fallback-review', message: 'hello', principal },
+        async (event) => {
+          emitted.push(event.type);
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'REVIEW_REQUIRED' });
+    expect(emitted).not.toContain('answer.completed');
+    expect(
+      (await h.ctx.sessions.recent('fallback-review')).some((m) => m.role === 'assistant'),
+    ).toBe(false);
+  });
+
   it('retains the customer-service default and rejects unknown presets before startup', async () => {
     expect(loadConfig({}).APP_PRESET).toBe('customer-service');
     expect(() => loadConfig({ APP_PRESET: 'unknown' })).toThrow();

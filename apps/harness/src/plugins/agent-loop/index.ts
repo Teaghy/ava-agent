@@ -26,6 +26,7 @@ export const agentLoopPlugin = {
         cache: ctx.cache,
         telemetry: ctx.telemetry,
         guard: ctx.guard,
+        getAnswer: () => ctx.get('answer'),
         memory: ctx.memory,
       },
       c,

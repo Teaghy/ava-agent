@@ -27,6 +27,9 @@ import {
 import { changePlugin, configurePlugin, installPlugin, loadPlugins } from '../services/plugins';
 import './plugins.css';
 import { RunsPanel } from './RunsPanel';
+import { ModelsPanel } from './ModelsPanel';
+import { CapabilityOverview, RuntimePluginOverview } from './PluginOverview';
+import { readToken, saveToken } from '../services/token';
 
 const slots: { value: PluginSlot; label: string }[] = [
   { value: 'decision', label: '决策 · Decision' },
@@ -37,8 +40,10 @@ const slots: { value: PluginSlot; label: string }[] = [
   { value: 'rag', label: '知识检索 · RAG' },
   { value: 'responsePolicy', label: '回答策略 · Response policy' },
 ];
-const sourceLabels = { default: '默认', application: '应用配置', plugin: '插件' };
 const statusLabels = { active: '运行中', disabled: '已停用', failed: '加载失败' };
+const currentPage = (): 'runs' | 'models' | 'plugins' =>
+  location.hash === '#runs' ? 'runs' : location.hash === '#models' ? 'models' : 'plugins';
+const pageTitles = { runs: '运行排查', models: '模型配置', plugins: '插件维护' };
 
 function requestError(error: unknown): string {
   if (error instanceof ApiError) {
@@ -52,7 +57,7 @@ function requestError(error: unknown): string {
 }
 
 export function PluginsPage() {
-  const [page, setPage] = useState(location.hash === '#runs' ? 'runs' : 'plugins');
+  const [page, setPage] = useState(currentPage);
   const [tokenInput, setTokenInput] = useState('');
   const [token, setToken] = useState('');
   const [access, setAccess] = useState<OpsAccess>();
@@ -81,17 +86,18 @@ export function PluginsPage() {
     document.title = '插件维护 · Harness Ops';
     return () => {
       request.current?.abort();
+      request.current = null;
       document.title = title;
     };
   }, []);
 
   useEffect(() => {
-    const navigate = () => setPage(location.hash === '#runs' ? 'runs' : 'plugins');
+    const navigate = () => setPage(currentPage());
     window.addEventListener('hashchange', navigate);
     return () => window.removeEventListener('hashchange', navigate);
   }, []);
   useEffect(() => {
-    document.title = `${page === 'runs' ? '运行排查' : '插件维护'} · Harness Ops`;
+    document.title = `${pageTitles[page]} · Harness Ops`;
   }, [page]);
 
   const run = async (
@@ -116,12 +122,13 @@ export function PluginsPage() {
       setError(requestError(cause));
       if (cause instanceof ApiError && (cause.status === 401 || cause.status === 403)) {
         setToken('');
+        saveToken('');
         setAccess(undefined);
         setSnapshot(undefined);
         tokenField.current?.focus();
       }
     } finally {
-      if (!controller.signal.aborted) {
+      if (request.current === controller) {
         request.current = null;
         setPending('');
       }
@@ -136,7 +143,7 @@ export function PluginsPage() {
     if (!next.managePlugins) {
       location.hash = 'runs';
       setPage('runs');
-    } else if (!next.inspectRuns) {
+    } else if (!next.inspectRuns && currentPage() === 'runs') {
       location.hash = 'plugins';
       setPage('plugins');
     }
@@ -152,11 +159,26 @@ export function PluginsPage() {
       (signal) => loadAccess(candidate, signal),
       () => {
         setToken(candidate);
+        const saved = saveToken(candidate);
         setTokenInput('');
-        setNotice('已读取服务器当前状态。');
+        setNotice(
+          saved
+            ? '已读取服务器当前状态。'
+            : '连接成功，但浏览器无法保存会话凭证，刷新后需要重新填写 Token。',
+        );
       },
     );
   };
+
+  useEffect(() => {
+    const saved = readToken();
+    if (saved)
+      void run(
+        '正在恢复管理连接…',
+        (signal) => loadAccess(saved, signal),
+        () => setToken(saved),
+      );
+  }, []);
 
   const install = (event: FormEvent) => {
     event.preventDefault();
@@ -267,7 +289,7 @@ export function PluginsPage() {
         <span className="plugins-breadcrumb">
           <ChevronRight size={14} />
           系统维护<span>/</span>
-          {page === 'runs' ? '运行排查' : '插件管理'}
+          {pageTitles[page]}
         </span>
         <nav className="ops-nav" aria-label="维护功能">
           {(!access || access.managePlugins) && (
@@ -280,17 +302,24 @@ export function PluginsPage() {
               运行排查
             </a>
           )}
+          {(!access || access.managePlugins) && (
+            <a href="#models" aria-current={page === 'models' ? 'page' : undefined}>
+              模型配置
+            </a>
+          )}
         </nav>
       </header>
       <main className="plugins-content" id="plugin-main" tabIndex={-1}>
         <div className="plugins-heading">
           <div>
             <span className="plugins-eyebrow">HARNESS OPERATIONS</span>
-            <h1>{page === 'runs' ? '运行排查' : '插件维护'}</h1>
+            <h1>{pageTitles[page]}</h1>
             <p>
               {page === 'runs'
                 ? '定位每次提问的执行路径、工具结果与失败原因。'
-                : '维护当前 Harness 的插件装配与运行状态。变更会暂停并取消当前任务。'}
+                : page === 'models'
+                  ? '配置模型地址、名称与访问凭证，在线更新知识库索引。'
+                  : '维护当前 Harness 的插件装配与运行状态。变更会暂停并取消当前任务。'}
             </p>
           </div>
           <span className="plugins-admin-label">
@@ -308,7 +337,7 @@ export function PluginsPage() {
               <h2>{token ? '管理服务已连接' : '连接管理服务'}</h2>
               <p>
                 {token
-                  ? 'Token 仅保存在当前页面内存中，离开本页即清除。'
+                  ? 'Token 保存在当前标签页会话中，刷新后自动恢复；更换 Token 时清除。'
                   : '使用 OPS_API_KEYS 中专门配置的维护 Token，业务端 Token 无法连接。'}
               </p>
             </div>
@@ -334,6 +363,7 @@ export function PluginsPage() {
                 disabled={busy}
                 onClick={() => {
                   setToken('');
+                  saveToken('');
                   setAccess(undefined);
                   setSnapshot(undefined);
                   setError('');
@@ -370,7 +400,7 @@ export function PluginsPage() {
                 {busy ? <LoaderCircle size={14} className="spinner" /> : <ArrowUpRight size={15} />}
                 连接
               </button>
-              <span className="plugins-token-hint">仅在内存中使用，不保存到浏览器。</span>
+              <span className="plugins-token-hint">保存在当前标签页会话中，刷新后自动恢复。</span>
             </form>
           )}
         </section>
@@ -400,6 +430,8 @@ export function PluginsPage() {
           </p>
         ) : page === 'runs' ? (
           <RunsPanel key={token} token={token} />
+        ) : page === 'models' ? (
+          <ModelsPanel key={token} token={token} />
         ) : (
           <>
             {snapshot && !snapshot.enabled && (
@@ -419,38 +451,8 @@ export function PluginsPage() {
               </div>
             )}
 
-            <section
-              className="plugins-providers plugins-panel"
-              aria-labelledby="plugin-providers-title"
-            >
-              <div className="plugins-section-heading">
-                <div>
-                  <h2 id="plugin-providers-title">当前能力提供方</h2>
-                  <p>查看各槽位实际使用的 Provider 与来源。</p>
-                </div>
-                <span className="plugins-section-label">PROVIDERS</span>
-              </div>
-              {snapshot?.providers.length ? (
-                <div className="plugins-provider-grid">
-                  {snapshot.providers.map((provider) => (
-                    <div className="plugins-provider" key={provider.slot}>
-                      <span>{slots.find((item) => item.value === provider.slot)?.label}</span>
-                      <strong title={provider.name}>{provider.name}</strong>
-                      <span className={`plugins-source plugins-source-${provider.source}`}>
-                        <i />
-                        {sourceLabels[provider.source]}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="plugins-provider-empty">
-                  {snapshot
-                    ? '服务器当前未返回 Provider 信息。'
-                    : '连接管理服务后，显示各槽位的实际提供方。'}
-                </p>
-              )}
-            </section>
+            <CapabilityOverview snapshot={snapshot} />
+            <RuntimePluginOverview snapshot={snapshot} />
 
             <div className="plugins-workspace">
               <section
@@ -461,17 +463,17 @@ export function PluginsPage() {
                 <div className="plugins-section-heading">
                   <div>
                     <h2 id="plugin-list-title">
-                      已登记插件
+                      外部安装插件
                       {snapshot && <span className="plugins-count">{snapshot.plugins.length}</span>}
                     </h2>
-                    <p>管理独立扩展与算法 Provider。</p>
+                    <p>管理上传或登记的独立扩展与算法 Provider。</p>
                   </div>
                   <Puzzle size={19} />
                 </div>
                 {snapshot?.plugins.length ? (
                   <div className="plugins-list">
                     {snapshot.plugins.map((plugin) => (
-                      <article className="plugins-card" key={plugin.id}>
+                      <article className="plugins-card" id={`plugin-${plugin.id}`} key={plugin.id}>
                         <div className="plugins-card-title">
                           <h3>{plugin.name}</h3>
                           <span className={`plugins-status plugins-status-${plugin.status}`}>

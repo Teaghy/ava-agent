@@ -7,6 +7,7 @@ import type { TelemetryService } from '../observability/telemetry.service.js';
 import type { KnowledgeRegistryService } from '../rag/knowledge-source.js';
 import type { SessionService } from '../session/session.service.js';
 import type { ToolService } from '../tools/tool.js';
+import type { AnswerService } from '../answer/answer.service.js';
 
 /** The default runtime's domain dependencies; no plugin framework or provider SDK. */
 export interface AgentDependencies {
@@ -18,5 +19,6 @@ export interface AgentDependencies {
   cache: CacheService;
   telemetry: TelemetryService;
   guard: GuardService;
+  getAnswer?: () => AnswerService | undefined;
   memory?: MemoryService;
 }

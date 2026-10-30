@@ -41,3 +41,5 @@ export type { AgentTool, ToolService } from './tools/tool.js';
 export type { ToolPermission, ToolDescriptor, AuditLog } from './tools/tool.types.js';
 export type { VectorService } from './vector/vector.service.js';
 export type { VectorPoint } from './vector/vector.types.js';
+export type { AnswerService, AnswerRequest } from './answer/answer.service.js';
+export type * from './model/model-compatibility.service.js';

@@ -2,6 +2,9 @@
 
 智能客服落地的优先级、待办和验收条件见 [智能客服落地待办](docs/customer-service-todo.md)。
 
+使用真实模型测试澄风客服资料，见 [OpenRouter 示例](examples/openrouter/README.md)。
+切换到百炼向量模型的配置与索引要求见 [阿里云 Embedding](docs/aliyun-embedding.md)。
+
 以 **Cordis** 为插件内核、自研有限步数 **ReAct Runtime** 为执行核心、**H3** 为 HTTP/SSE Transport 的 TypeScript AI 应用底座。提供客服、知识问答与通用聊天预设，行业知识、业务工具、决策算法和回答策略可通过插件接入。
 
 Node.js **22.12+**、pnpm、ESM、TypeScript strict；测试使用 **Vitest**，lint 使用 **oxlint**，格式化使用 **oxfmt**。
@@ -15,7 +18,9 @@ pnpm dev
 
 默认 `APP_MODE=mock`，无需数据库、模型密钥或 Docker，监听 `http://127.0.0.1:3000`。**先在根 `.env` 配置每位使用者独立的 `API_KEYS`，再在聊天页面输入对应 Token**。mock 模式使用真实的 Cordis 插件组合、Agent 循环、工具注册、RAG、上下文构建、Guard 和 SSE；只替换外部 Provider。重启会丢失内存数据。
 
-Web 页面支持发送问题、Markdown 回答、SSE 状态、停止生成、新建/搜索/恢复会话、查看知识引用，以及移动端布局。服务设置展示当前长期记忆和会话存储方式；需要认证时可输入访问 Token，Token 只保留在当前页面内存中。
+Web 页面支持发送问题、Markdown 回答、SSE 状态、停止生成、新建/搜索/恢复会话、查看知识引用，以及移动端布局。服务设置展示当前长期记忆和会话存储方式；需要认证时可输入访问 Token，Token 保存在当前标签页的 sessionStorage 中，刷新后自动恢复；可在设置中清除。
+
+每次请求在回答下显示处理阶段、等待动画和实时用时，结束或停止后固定本次耗时；该计时仅保留在当前页面，不写入历史消息。live 模式默认使用 `ANSWER_STREAMING=true`：模型先返回简短的 `answer_ready` 决策，独立 AnswerService 再生成最终正文；普通知识问答在引用和依据预检后实时发送 `answer.delta`。执行过业务工具或配置额外行业审核时，改为完整生成、校验后发送。设为 false 可恢复完整决策回答的旧模式。
 
 默认 `APP_PRESET=customer-service`。在根 `.env` 改为 `knowledge` 可启动知识问答，改为 `chat` 可启动自由聊天；修改后重启。也可在 `ava.config.ts` 指定 `preset`，或通过 `providers.responsePolicy` 替换证据要求。预设不会改变权限、审计和引用真实性校验，前端按服务端预设调整文案。mock 聊天回复仅用于验证流程，详见 [应用预设与回答策略](docs/application-presets.md)。
 
@@ -23,7 +28,15 @@ Web 页面支持发送问题、Markdown 回答、SSE 状态、停止生成、新
 
 **维护人员接入插件：** 内置 Harness Ops 默认关闭。配置 `OPS_ENABLED=true` 和独立的 `OPS_API_KEYS` 后，打开 `http://127.0.0.1:3001/`。支持上传已构建的 ZIP 插件包、配置、启停和切换 Provider，重启后恢复；开发者仍可登记本地 JS 路径。包格式和示例见 [插件包上传](docs/plugin-upload.md)。聊天端和业务管理端不提供插件维护；管理 API 只存在于独立维护监听。配置权限、部署和故障恢复见 [Harness Ops 插件维护](docs/plugin-management.md)。
 
+插件页同时展示当前能力提供方，以及内置与应用插件的只读运行清单。支持按名称、服务与依赖搜索，分组展开查看职责和真实装配状态；外部安装项保留独立的配置和启停入口。
+
 **运行排查：** 同一 Ops 页面切换到“运行排查”（`/#runs`），可按租户、状态、运行 ID、会话及时间查询，查看单次提问的执行轨迹、节点耗时、工具结果与错误。维护人员默认只查所属租户，跨租户须配置 `inspectTenants`；接口只在 Ops 监听开放。启用及存储兼容说明见 [Ops 文档](apps/ops/README.md)。
+
+运行详情默认保留事件轨迹，同时支持三泳道轨迹图：按输入、模型、工具排列记录，提供顺序 / 耗时概览、缩放定位、搜索与步骤折叠。两种视图共用已有记录与节点选择，旧记录缺少耗时会明确标注。
+
+**模型配置：** Ops 的“模型配置”（`/#models`）支持在线更改 LLM / Embedding 的地址、模型与 Key，首次读取 `.env`，应用后持久保存并热切换。更换向量模型会自动重建全部已发布知识索引，成功后统一切换，失败保留原配置。权限、状态文件及适用范围见 [模型配置](docs/model-settings.md)。
+
+模型接入采用能力配置和适配插件：“高级兼容设置”支持消息格式、JSON 输出和流式用量参数；已知部署自动匹配，维护人员可覆盖。保存前验证多轮决策与流式正文，兼容错误给出具体设置提示。规则按地址及模型匹配，默认不会重排其他模型的消息。
 
 ### pnpm monorepo
 
@@ -282,6 +295,8 @@ curl http://localhost:3001/api/v1/ops/runs/detail \
 `GET /api/v1/client-config` 只返回公开 UI 配置（mode、authRequired、memoryProvider、persistence、maxMessageLength），不返回密钥或服务 URL。
 
 `GET /api/v1/conversations` 返回当前用户最近的 100 个会话；`POST /api/v1/conversations/history` 接收 `{ "conversationId": "..." }`，返回最近 100 条消息及持久化引用。列表按 tenant/user 筛选；历史读取再次校验所有者，不存在的会话返回 404。聊天记录不会写入浏览器 localStorage。
+
+左侧会话列表支持删除自己的对话，确认后清除聊天消息和摘要；删除当前会话会开启新对话。`POST /api/v1/conversations/delete` 接收相同的 conversationId，生成中的会话须先停止，删除后的旧 ID 不能继续使用。维护端的运行轨迹与审计记录按保留策略独立管理，不随聊天删除。详见 [会话接口](apps/harness/src/plugins/conversations-api/README.md)。
 
 `POST /api/v1/chat` 请求体只有 `conversationId` 和 `message`。
 

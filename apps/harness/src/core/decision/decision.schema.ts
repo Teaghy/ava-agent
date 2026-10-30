@@ -17,5 +17,11 @@ export const decisionSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('ask_user'), question: z.string().min(1).max(2000) }).strict(),
+  z
+    .object({
+      type: z.literal('answer_ready'),
+      citations: z.array(citationSchema).max(10).optional(),
+    })
+    .strict(),
 ]);
 export type AgentDecision = z.infer<typeof decisionSchema>;

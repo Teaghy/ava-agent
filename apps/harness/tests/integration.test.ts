@@ -84,6 +84,60 @@ describe('PostgreSQL + Redis + Qdrant integration (mock LLM, real infrastructure
     expect(await cache.rateLimit(rateKey, 1, 1)).toBe(true);
     expect(await cache.rateLimit(rateKey, 1, 1)).toBe(false);
   });
+  it('scans published knowledge with a stable global cursor for vector rebuilds', async () => {
+    const expected = await harness.ctx.storage.knowledgeChunks(demoKnowledge.id, tenant);
+    const seen = new Set<string>();
+    const own: string[] = [];
+    let after: string | undefined;
+    for (;;) {
+      const page = await harness.ctx.storage.scanKnowledgeChunks!(after, 17);
+      if (!page.length) break;
+      expect(page.length).toBeLessThanOrEqual(17);
+      for (const chunk of page) {
+        expect(seen.has(chunk.id)).toBe(false);
+        seen.add(chunk.id);
+        if (chunk.tenantId === tenant) own.push(chunk.id);
+      }
+      after = page.at(-1)!.id;
+    }
+    expect(own.sort()).toEqual(expected.map((chunk) => chunk.id).sort());
+  });
+  it('deletes owned chat data atomically while keeping append-only traces and preventing late summaries', async () => {
+    const conversationId = randomUUID();
+    const result = await harness.ctx.agent.run({
+      conversationId,
+      message: 'VCD-2000 E102',
+      principal,
+    });
+    await expect(
+      harness.ctx.storage.deleteConversation(conversationId, { ...principal, userId: 'other' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const summary = {
+      conversationId,
+      summary: 'to be removed',
+      confirmedFacts: [],
+      executedActions: [],
+      pendingItems: [],
+      updatedAt: new Date().toISOString(),
+    };
+    await Promise.all([
+      harness.ctx.storage.saveSummary(summary),
+      harness.ctx.storage.deleteConversation(conversationId, principal),
+    ]);
+    expect(await harness.ctx.storage.messages(conversationId, 100)).toEqual([]);
+    expect(await harness.ctx.storage.summary(conversationId)).toBeUndefined();
+    await harness.ctx.storage.saveSummary(summary);
+    expect(await harness.ctx.storage.summary(conversationId)).toBeUndefined();
+    expect(
+      (await harness.ctx.storage.listConversations(principal, 100)).some(
+        (c) => c.id === conversationId,
+      ),
+    ).toBe(false);
+    await expect(
+      harness.ctx.storage.ensureConversation(conversationId, principal),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect((await harness.ctx.eventStore.replay(result.runId, tenant)).length).toBeGreaterThan(0);
+  });
   it('stores and deletes scoped long-term facts in PostgreSQL', async () => {
     const item = await harness.ctx.memory.remember({
       tenantId: tenant,

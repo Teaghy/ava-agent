@@ -267,65 +267,6 @@
   font-size: 9px;
   letter-spacing: 1.6px;
 }
-.plugins-providers {
-  margin-bottom: 24px;
-}
-.plugins-provider-grid {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  padding: 0 12px 24px;
-}
-.plugins-provider {
-  padding: 1px 15px 0;
-  border-right: 1px solid var(--border);
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-}
-.plugins-provider:last-child {
-  border-right: 0;
-}
-.plugins-provider > span:first-child {
-  color: var(--text-secondary);
-  font-size: 10px;
-  white-space: nowrap;
-}
-.plugins-provider strong {
-  font-size: 13px;
-  font-weight: 550;
-  margin: 12px 0;
-  line-height: 1.6;
-  width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.plugins-source {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: #737c8b;
-  font-size: 9px;
-}
-.plugins-source i {
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: #a1a9b5;
-}
-.plugins-source-plugin {
-  color: var(--primary);
-}
-.plugins-source-plugin i {
-  background: var(--primary);
-}
-.plugins-provider-empty {
-  padding: 5px 24px 25px;
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 11px;
-}
 .plugins-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(340px, 1fr);
@@ -708,16 +649,6 @@
     grid-template-columns: minmax(0, 1.15fr) minmax(325px, 1fr);
     gap: 18px;
   }
-  .plugins-provider-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    row-gap: 23px;
-  }
-  .plugins-provider:nth-child(3n) {
-    border-right: 0;
-  }
-  .plugins-provider strong {
-    margin: 7px 0;
-  }
 }
 @media (max-width: 760px) {
   .plugins-topbar {
@@ -760,22 +691,6 @@
   .plugins-workspace {
     grid-template-columns: minmax(0, 1fr);
     gap: 20px;
-  }
-  .plugins-providers {
-    margin-bottom: 20px;
-  }
-  .plugins-provider-grid {
-    padding: 0 7px 20px;
-    row-gap: 22px;
-  }
-  .plugins-provider {
-    padding: 0 11px;
-  }
-  .plugins-provider > span:first-child {
-    font-size: 8px;
-  }
-  .plugins-provider strong {
-    font-size: 11px;
   }
   .plugins-empty {
     padding: 40px 20px;

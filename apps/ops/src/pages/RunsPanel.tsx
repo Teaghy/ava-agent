@@ -3,6 +3,7 @@ import { AgentClient } from '@ava/sdk';
 import type { RunDetail, RunEvent, RunListRequest, RunSummary } from '@ava/protocol';
 import { Activity, ArrowLeft, ArrowRight, Clock3, RefreshCw, Search } from 'lucide-react';
 import './runs.css';
+import { RunTrajectory } from './RunTrajectory';
 
 const statuses = {
   running: '执行中',
@@ -32,6 +33,10 @@ function data(event: RunEvent): Record<string, unknown> {
     ? (event.payload as Record<string, unknown>)
     : {};
 }
+const eventLabel = (event: RunEvent) =>
+  event.type === 'execution_span' && data(event).phase === 'answer'
+    ? '生成回答'
+    : (labels[event.type] ?? event.type);
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : '查询失败，请稍后重试。';
 
@@ -50,6 +55,7 @@ export function RunsPanel({ token }: { token: string }) {
   const [detail, setDetail] = useState<RunDetail>();
   const [node, setNode] = useState('');
   const [checkpoints, setCheckpoints] = useState(false);
+  const [view, setView] = useState<'events' | 'trajectory'>('events');
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState('');
@@ -352,64 +358,105 @@ export function RunsPanel({ token }: { token: string }) {
                 </div>
                 <div className="runs-trace-heading">
                   <h3>执行轨迹</h3>
+                  <div className="runs-view-switch" aria-label="执行轨迹视图">
+                    <button
+                      type="button"
+                      aria-pressed={view === 'events'}
+                      onClick={() => {
+                        setView('events');
+                        if (!events.some((event) => event.id === node))
+                          setNode(events[0]?.id ?? '');
+                      }}
+                    >
+                      事件轨迹
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={view === 'trajectory'}
+                      onClick={() => setView('trajectory')}
+                    >
+                      轨迹图
+                    </button>
+                  </div>
                   <label>
                     <input
                       type="checkbox"
                       checked={checkpoints}
                       onChange={(e) => {
                         setCheckpoints(e.target.checked);
-                        setNode('');
+                        if (
+                          !e.target.checked &&
+                          detail.events.some(
+                            (event) => event.id === node && event.type === 'checkpoint',
+                          )
+                        ) {
+                          setNode(
+                            detail.events.findLast((event) => event.type === 'error')?.id ??
+                              detail.events.find((event) => event.type !== 'checkpoint')?.id ??
+                              '',
+                          );
+                        }
                       }}
                     />
                     显示状态快照
                   </label>
                 </div>
-                <div className="runs-trace-layout">
-                  <ol className="runs-trace">
-                    {events.map((event, index) => {
-                      const payload = data(event);
-                      const failed = event.type === 'error' || payload.status === 'failed';
-                      return (
-                        <li key={event.id} className={failed ? 'is-failed' : ''}>
-                          <button
-                            className={`runs-node ${node === event.id ? 'is-selected' : ''}`}
-                            aria-pressed={node === event.id}
-                            onClick={() => setNode(event.id)}
-                          >
-                            <span className="runs-node-number">{index + 1}</span>
-                            <span>
-                              <strong>{labels[event.type] ?? event.type}</strong>
-                              {typeof payload.tool === 'string' && <code>{payload.tool}</code>}
-                              <small>
-                                {new Date(event.createdAt).toLocaleTimeString('zh-CN', {
-                                  hour12: false,
-                                })}
-                                {duration(event) ? ` · ${duration(event)}` : ''}
-                              </small>
-                            </span>
-                            {failed && <span className="runs-failure">失败</span>}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                  <div className="runs-node-detail" aria-live="polite">
-                    {current ? (
-                      <>
-                        <h3>{labels[current.type] ?? current.type}</h3>
-                        <p>
-                          {date(current.createdAt)}
-                          {duration(current) ? ` · 耗时 ${duration(current)}` : ''}
-                        </p>
-                        <pre tabIndex={0} aria-label="节点数据">
-                          {JSON.stringify(current.payload, null, 2)}
-                        </pre>
-                      </>
-                    ) : (
-                      <p>点击一个节点查看详情。</p>
-                    )}
+                {view === 'trajectory' ? (
+                  <RunTrajectory
+                    key={detail.run.runId}
+                    detail={detail}
+                    checkpoints={checkpoints}
+                    selectedId={node}
+                    onSelect={setNode}
+                  />
+                ) : (
+                  <div className="runs-trace-layout">
+                    <ol className="runs-trace">
+                      {events.map((event, index) => {
+                        const payload = data(event);
+                        const failed = event.type === 'error' || payload.status === 'failed';
+                        return (
+                          <li key={event.id} className={failed ? 'is-failed' : ''}>
+                            <button
+                              className={`runs-node ${node === event.id ? 'is-selected' : ''}`}
+                              aria-pressed={node === event.id}
+                              onClick={() => setNode(event.id)}
+                            >
+                              <span className="runs-node-number">{index + 1}</span>
+                              <span>
+                                <strong>{eventLabel(event)}</strong>
+                                {typeof payload.tool === 'string' && <code>{payload.tool}</code>}
+                                <small>
+                                  {new Date(event.createdAt).toLocaleTimeString('zh-CN', {
+                                    hour12: false,
+                                  })}
+                                  {duration(event) ? ` · ${duration(event)}` : ''}
+                                </small>
+                              </span>
+                              {failed && <span className="runs-failure">失败</span>}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                    <div className="runs-node-detail" aria-live="polite">
+                      {current ? (
+                        <>
+                          <h3>{eventLabel(current)}</h3>
+                          <p>
+                            {date(current.createdAt)}
+                            {duration(current) ? ` · 耗时 ${duration(current)}` : ''}
+                          </p>
+                          <pre tabIndex={0} aria-label="节点数据">
+                            {JSON.stringify(current.payload, null, 2)}
+                          </pre>
+                        </>
+                      ) : (
+                        <p>点击一个节点查看详情。</p>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
                 <p className="runs-note">
                   按实际事件顺序展示；旧记录可能没有节点耗时。运行中状态是最后保存的状态，进程中断后可能尚未更新。常见凭据字段已过滤，业务内容仅供授权维护人员排查。
                 </p>

@@ -14,6 +14,8 @@ export interface AgentConfig {
   maxRagSearches: number;
   runTimeoutMs: number;
   isPaused?: () => boolean;
+  insufficientEvidenceReply?: string;
+  streamAnswers?: boolean;
 }
 
 export function createAgentService(ctx: AgentDependencies, c: AgentConfig): AgentService {
@@ -93,6 +95,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
         let opened = false;
         let phase = 'prepare';
         let phaseStart = performance.now();
+        let streamedChars = 0;
         const append = (
           type: Parameters<AgentDependencies['eventStore']['append']>[2],
           payload: unknown,
@@ -182,17 +185,117 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
               durationMs: performance.now() - start,
             });
             if (decision.type !== 'tool_call') {
-              const answer = decision.type === 'ask_user' ? decision.question : decision.answer;
-              const citations = decision.type === 'final_answer' ? (decision.citations ?? []) : [];
+              let answer =
+                decision.type === 'ask_user'
+                  ? decision.question
+                  : decision.type === 'answer_ready'
+                    ? '根据本次已验证的依据生成答复。'
+                    : decision.answer;
+              let citations = decision.type === 'ask_user' ? [] : (decision.citations ?? []);
+              let responseType: 'final_answer' | 'ask_user' =
+                decision.type === 'ask_user' ? 'ask_user' : 'final_answer';
+              let fallbackReason: string | undefined;
+              const live =
+                decision.type === 'answer_ready' &&
+                c.streamAnswers === true &&
+                ctx.guard.canStream?.() === true &&
+                !state.toolCalls.some((call) => call.kind !== 'retrieval');
               phase = 'guard';
               phaseStart = performance.now();
-              await ctx.guard.validate(answer, citations, state, signal, decision.type);
-              checkAbort(signal);
-              await append('execution_span', {
-                phase,
-                step: state.step,
-                durationMs: performance.now() - phaseStart,
-              });
+              const validateAnswer = async () => {
+                try {
+                  await ctx.guard.validate(answer, citations, state, signal, responseType);
+                } catch (error) {
+                  if (
+                    !(error instanceof AppError) ||
+                    error.code !== 'LOW_CONFIDENCE' ||
+                    streamedChars > 0 ||
+                    !c.insufficientEvidenceReply
+                  )
+                    throw error;
+                  answer = c.insufficientEvidenceReply;
+                  citations = [];
+                  responseType = 'ask_user';
+                  fallbackReason = error.code;
+                  await ctx.guard.validate(answer, citations, state, signal, responseType);
+                }
+              };
+              if (decision.type !== 'answer_ready' || live) {
+                await validateAnswer();
+                checkAbort(signal);
+                await append('execution_span', {
+                  phase,
+                  step: state.step,
+                  durationMs: performance.now() - phaseStart,
+                  ...(fallbackReason ? { outcome: 'scope_reply', reason: fallbackReason } : {}),
+                });
+              }
+              if (decision.type === 'answer_ready' && !fallbackReason) {
+                const generator = ctx.getAnswer?.();
+                if (!generator)
+                  throw new AppError('MODEL_UNAVAILABLE', '当前未配置回答生成模型。', 503);
+                phase = 'answer';
+                phaseStart = performance.now();
+                await emit({ type: 'agent.step', data: { step: state.step, phase } });
+                const request = {
+                  message: input.message,
+                  state: {
+                    retrievedDocuments: state.retrievedDocuments.filter((doc) =>
+                      citations.some(
+                        (citation) =>
+                          citation.chunkId === doc.id && citation.documentId === doc.documentId,
+                      ),
+                    ),
+                    observations: state.observations.filter((observation) =>
+                      state.toolCalls.some(
+                        (call) =>
+                          call.tool === observation.tool &&
+                          call.kind !== 'retrieval' &&
+                          call.status === 'completed',
+                      ),
+                    ),
+                  },
+                  recent: recent.slice(0, -1),
+                  summary,
+                  memories,
+                  signal,
+                  runId: state.runId,
+                  conversationId: state.conversationId,
+                };
+                answer = '';
+                let firstTokenMs: number | undefined;
+                for await (const delta of generator.stream(request)) {
+                  checkAbort(signal);
+                  if (!delta.text) continue;
+                  if (answer.length + delta.text.length > 16000)
+                    throw new AppError('ANSWER_LIMIT', '回答超过长度上限，请缩小问题范围。', 502);
+                  firstTokenMs ??= performance.now() - phaseStart;
+                  answer += delta.text;
+                  if (live) {
+                    streamedChars += delta.text.length;
+                    await emit({ type: 'answer.delta', data: { text: delta.text } });
+                  }
+                }
+                checkAbort(signal);
+                if (!answer.trim())
+                  throw new AppError('INVALID_MODEL_OUTPUT', '模型未生成有效的回答。', 502);
+                await append('execution_span', {
+                  phase,
+                  step: state.step,
+                  durationMs: performance.now() - phaseStart,
+                  delivery: live ? 'stream' : 'buffered',
+                  firstTokenMs,
+                  outputChars: answer.length,
+                });
+                phase = 'guard';
+                phaseStart = performance.now();
+                await validateAnswer();
+                await append('execution_span', {
+                  phase,
+                  step: state.step,
+                  durationMs: performance.now() - phaseStart,
+                });
+              }
               phase = 'answer';
               phaseStart = performance.now();
               await ctx.sessions.add(state.conversationId, 'assistant', answer, {
@@ -206,10 +309,10 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
                 runId: state.runId,
                 answer,
                 citations,
-                status: decision.type === 'ask_user' ? 'ask_user' : 'completed',
+                status: responseType === 'ask_user' ? 'ask_user' : 'completed',
               };
-              // Only guarded text is released. Delta segmentation is transport streaming, not raw model reasoning.
-              for (const text of answer.match(/[\s\S]{1,80}/gu) ?? []) {
+              // Buffered/legacy replies are released only after validation; live deltas were already sent.
+              for (const text of streamedChars ? [] : (answer.match(/[\s\S]{1,80}/gu) ?? [])) {
                 checkAbort(signal);
                 await emit({ type: 'answer.delta', data: { text } });
               }
@@ -288,6 +391,8 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
                 phase,
                 step: state.step,
                 durationMs: performance.now() - phaseStart,
+                partialAnswer: streamedChars > 0,
+                outputChars: streamedChars,
               });
               await ctx.sessions.checkpoint(state, tenant);
             } catch {

@@ -2,6 +2,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentClient } from '../src/index.js';
 afterEach(() => vi.unstubAllGlobals());
 describe('AgentClient', () => {
+  it('authenticates deletion and rejects malformed IDs before HTTP', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ deleted: true }));
+    vi.stubGlobal('fetch', fetcher);
+    const client = new AgentClient({ token: 'test-token' });
+    expect(await client.deleteConversation('owned-conversation')).toEqual({ deleted: true });
+    expect(fetcher.mock.calls[0]?.[0]).toBe('/api/v1/conversations/delete');
+    const options = fetcher.mock.calls[0]?.[1];
+    expect(options?.method).toBe('POST');
+    expect(JSON.parse(String(options?.body))).toEqual({ conversationId: 'owned-conversation' });
+    expect(new Headers(options?.headers).get('authorization')).toBe('Bearer test-token');
+    fetcher.mockClear();
+    await expect(client.deleteConversation('../other')).rejects.toThrow();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
   it('reads the server preset and defaults older server configs to customer-service', async () => {
     const config = {
       mode: 'mock',

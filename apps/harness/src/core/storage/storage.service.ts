@@ -7,10 +7,12 @@ import type { ConversationSummary, Message } from '../session/session.types.js';
 import type { AuditLog } from '../tools/tool.types.js';
 import type { Conversation as ConversationInfo, RunQuery, RunSummary } from '@ava/protocol';
 export interface StorageService {
+  scanKnowledgeChunks?(afterId: string | undefined, limit: number): Promise<RetrievedDocument[]>;
   listRuns(query: RunQuery): Promise<RunSummary[]>;
   listConversations(principal: Principal, limit: number): Promise<ConversationInfo[]>;
   assertConversation(id: string, principal: Principal): Promise<void>;
   ensureConversation(id: string, principal: Principal): Promise<void>;
+  deleteConversation(id: string, principal: Principal): Promise<void>;
   addMessage(message: Message): Promise<void>;
   messages(id: string, limit: number): Promise<Message[]>;
   summary(id: string): Promise<ConversationSummary | undefined>;

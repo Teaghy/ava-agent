@@ -18,6 +18,8 @@ APP_PRESET=chat
 
 内置三种回答策略在使用检索文档回答时都要求引用。追问可以没有知识证据，但仍执行行业校验。只有客服预设在 `SEED_KNOWLEDGE=true` 时导入虚构设备演示知识，另外两个预设不自动导入演示资料。知识问答需要维护人员通过现有知识 API 导入实际资料；本次没有增加文档管理后台。
 
+客服预设遇到 `LOW_CONFIDENCE` 时，不向用户发送原本缺少依据的答案，而是改为固定的服务范围说明，提示补充产品型号或业务问题、必要时联系人工。该回复以 `ask_user` 正常结束，保存到会话并发送 `answer.completed`；Ops 运行状态为 `completed`，Guard 节点记录 `outcome: scope_reply` 和 `reason: LOW_CONFIDENCE`。替代回复仍完整执行 Guard 与行业策略。无效引用、缺少引用、越权、模型或基础设施故障不使用此替代逻辑；知识问答和自由聊天预设的行为不变。
+
 `APP_PRESET` 与 `APP_MODE=mock/live` 独立。mock 自由聊天返回明确标注的模拟回复，只用于验证流程；真实模型质量需要 live 验证。本次预设不改变数据库、缓存、向量与记忆等基础设施的装配，live 仍需要当前配置要求的基础设施和默认 Provider 凭据，不会静默降级到 mock。
 
 程序化调用或 `ava.config.ts` 也可指定：

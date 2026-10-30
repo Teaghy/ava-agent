@@ -6,7 +6,9 @@ declare module 'cordis' {
   interface Context {
     agent: C.AgentService;
     decision: C.DecisionService;
+    answer: C.AnswerService;
     model: C.ModelService;
+    modelCompatibility: C.ModelCompatibilityService;
     tools: C.ToolService;
     sessions: C.SessionService;
     storage: C.StorageService;

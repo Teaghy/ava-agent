@@ -14,6 +14,7 @@ export const responsePolicyPlugin = {
   apply(ctx: Context, config: { evidence: 'knowledge-or-tool' | 'knowledge' | 'optional' }) {
     const policy: AnswerPolicy = {
       name: `evidence-${config.evidence}`,
+      allowStreaming: true,
       validate(_answer, citations, state, signal, responseType = 'final_answer') {
         checkAbort(signal);
         if (responseType === 'ask_user') return;

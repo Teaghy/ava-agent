@@ -2,6 +2,12 @@
 
 提供当前用户的会话列表与历史消息。入口与实现为 [conversationsApiPlugin](index.ts)。
 
+支持 `POST /api/v1/conversations/delete`，请求 `{ "conversationId": "conv001" }`，成功返回 `{ "deleted": true }`。只允许当前租户、当前用户删除自己的会话，业务管理员不绕过归属检查；未认证返回 401，越权返回 403，不存在或已删除返回 404，仍在运行的会话返回 409，应先停止生成。
+
+删除与 Agent 使用相同的会话锁。存储层清除消息和摘要、保留已删除标记，列表不再返回该会话，历史和旧 ID 的后续聊天被拒绝。PostgreSQL 在同一事务中完成，并与摘要写入锁定同一会话行，防止后台摘要重新创建已删除内容。
+
+Ops 运行轨迹、不可变事件、工具审计和独立长期记忆不随个人聊天删除，继续按维护侧的数据保留策略管理；此接口不是所有个人数据的彻底擦除接口。自定义 Storage Provider 需实现 `deleteConversation(id, principal)` 并保留相同的身份隔离与删除约束。PostgreSQL 部署前执行新增的 `0004_conversation_deletion` 迁移。
+
 ## 依赖与配置
 
 - 必需：`http`、`storage`；不提供新的 Cordis 服务。

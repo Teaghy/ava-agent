@@ -1,5 +1,5 @@
 import { type NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { and, eq, desc, asc, sql, gte, lte } from 'drizzle-orm';
+import { and, eq, desc, asc, sql, gte, lte, isNull, gt } from 'drizzle-orm';
 import type { StorageService } from '../../core/storage/storage.service.js';
 import type { Conversation as ConversationInfo, RunQuery, RunSummary } from '@ava/protocol';
 import type { Principal, Metadata } from '../../core/common.types.js';
@@ -12,6 +12,19 @@ import type { MemoryItem, RecallOptions } from '../../core/memory/memory.types.j
 import { AppError } from '../../core/errors.js';
 import * as s from './schema/index.js';
 export class PostgresStorage implements StorageService {
+  async scanKnowledgeChunks(
+    afterId: string | undefined,
+    limit: number,
+  ): Promise<RetrievedDocument[]> {
+    return (
+      await this.db
+        .select({ data: s.chunks.data })
+        .from(s.chunks)
+        .where(afterId ? gt(s.chunks.id, afterId) : undefined)
+        .orderBy(asc(s.chunks.id))
+        .limit(limit)
+    ).map((row) => row.data);
+  }
   constructor(private db: NodePgDatabase<typeof s>) {}
   async listRuns(q: RunQuery): Promise<RunSummary[]> {
     return this.db
@@ -43,7 +56,7 @@ export class PostgresStorage implements StorageService {
   }
   async assertConversation(id: string, p: Principal): Promise<void> {
     const [row] = await this.db.select().from(s.conversations).where(eq(s.conversations.id, id));
-    if (!row) throw new AppError('NOT_FOUND', '会话不存在。', 404);
+    if (!row || row.deletedAt) throw new AppError('NOT_FOUND', '会话不存在。', 404);
     if (row.tenantId !== p.tenantId || row.userId !== p.userId)
       throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
   }
@@ -57,7 +70,13 @@ export class PostgresStorage implements StorageService {
         title: sql<string>`coalesce((select left(content, 60) from messages where conversation_id = ${s.conversations.id} and role = 'user' order by sequence limit 1), '新对话')`,
       })
       .from(s.conversations)
-      .where(and(eq(s.conversations.tenantId, p.tenantId), eq(s.conversations.userId, p.userId)))
+      .where(
+        and(
+          eq(s.conversations.tenantId, p.tenantId),
+          eq(s.conversations.userId, p.userId),
+          isNull(s.conversations.deletedAt),
+        ),
+      )
       .orderBy(desc(updatedAt))
       .limit(limit);
   }
@@ -75,8 +94,27 @@ export class PostgresStorage implements StorageService {
       .values({ id, tenantId: p.tenantId, userId: p.userId })
       .onConflictDoNothing();
     const [row] = await this.db.select().from(s.conversations).where(eq(s.conversations.id, id));
+    if (row?.deletedAt) throw new AppError('NOT_FOUND', '会话已删除，请开启新对话。', 404);
     if (!row || row.tenantId !== p.tenantId || row.userId !== p.userId)
       throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
+  }
+  async deleteConversation(id: string, p: Principal): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(s.conversations)
+        .where(eq(s.conversations.id, id))
+        .for('update');
+      if (!row || row.deletedAt) throw new AppError('NOT_FOUND', '会话不存在。', 404);
+      if (row.tenantId !== p.tenantId || row.userId !== p.userId)
+        throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
+      await tx
+        .update(s.conversations)
+        .set({ deletedAt: new Date().toISOString() })
+        .where(eq(s.conversations.id, id));
+      await tx.delete(s.messages).where(eq(s.messages.conversationId, id));
+      await tx.delete(s.summaries).where(eq(s.summaries.conversationId, id));
+    });
   }
   async addMessage(m: Message): Promise<void> {
     await this.db.insert(s.messages).values(m);
@@ -96,10 +134,18 @@ export class PostgresStorage implements StorageService {
       ?.data;
   }
   async saveSummary(data: ConversationSummary): Promise<void> {
-    await this.db
-      .insert(s.summaries)
-      .values({ conversationId: data.conversationId, data })
-      .onConflictDoUpdate({ target: s.summaries.conversationId, set: { data } });
+    await this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(s.conversations)
+        .where(eq(s.conversations.id, data.conversationId))
+        .for('update');
+      if (!row || row.deletedAt) return;
+      await tx
+        .insert(s.summaries)
+        .values({ conversationId: data.conversationId, data })
+        .onConflictDoUpdate({ target: s.summaries.conversationId, set: { data } });
+    });
   }
   async saveRun(state: AgentState, tenantId: string): Promise<void> {
     await this.db

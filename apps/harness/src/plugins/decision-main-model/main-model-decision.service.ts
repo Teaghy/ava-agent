@@ -5,21 +5,51 @@ import type { DecisionService } from '../../core/decision/decision.service.js';
 import type { DecisionInput, DecisionContext } from '../../core/decision/decision.types.js';
 import type { ModelService } from '../../core/model/model.service.js';
 import type { TelemetryService } from '../../core/observability/telemetry.service.js';
-import { checkAbort } from '../../core/errors.js';
+import { AppError, checkAbort } from '../../core/errors.js';
+
+// The model selects evidence IDs; display metadata belongs to the retrieved document.
+const modelDecisionSchema = z.discriminatedUnion('type', [
+  decisionSchema.options[0],
+  decisionSchema.options[1].extend({
+    citations: z
+      .array(z.object({ documentId: z.string(), chunkId: z.string() }))
+      .max(10)
+      .optional(),
+  }),
+  decisionSchema.options[2],
+]);
+const streamingDecisionSchema = z.discriminatedUnion('type', [
+  modelDecisionSchema.options[0],
+  z
+    .object({
+      type: z.literal('answer_ready'),
+      citations: modelDecisionSchema.options[1].shape.citations,
+    })
+    .strict(),
+  modelDecisionSchema.options[2],
+]);
 
 export interface MainModelDecisionConfig {
   systemPrompt: string;
   contextTokens: number;
+  streamAnswers?: boolean;
 }
 export class MainModelDecisionService implements DecisionService {
   private readonly builder: ContextBuilder;
+  private readonly schema: z.ZodType<
+    z.infer<typeof modelDecisionSchema> | z.infer<typeof streamingDecisionSchema>
+  >;
   constructor(
     private model: ModelService,
     private telemetry: TelemetryService,
     config: MainModelDecisionConfig,
   ) {
-    const schemaOverhead = Buffer.byteLength(JSON.stringify(z.toJSONSchema(decisionSchema))) + 256;
-    this.builder = new ContextBuilder(config.systemPrompt, config.contextTokens - schemaOverhead);
+    this.schema = config.streamAnswers ? streamingDecisionSchema : modelDecisionSchema;
+    const schemaOverhead = Buffer.byteLength(JSON.stringify(z.toJSONSchema(this.schema))) + 256;
+    const prompt = config.streamAnswers
+      ? `${config.systemPrompt}\n本轮只选择下一步。资料足够时返回 answer_ready 和引用 ID，不要在决策 JSON 中撰写答案；答案由独立生成步骤输出。需要追问或说明范围时返回 ask_user。`
+      : config.systemPrompt;
+    this.builder = new ContextBuilder(prompt, config.contextTokens - schemaOverhead);
   }
   async decide(input: DecisionInput, context: DecisionContext) {
     checkAbort(context.signal);
@@ -42,7 +72,7 @@ export class MainModelDecisionService implements DecisionService {
       'model.decision',
       { run_id: context.runId, step: context.step },
       () =>
-        this.model.structuredOutput(decisionSchema, {
+        this.model.structuredOutput(this.schema, {
           messages,
           signal: context.signal,
           runId: context.runId,
@@ -59,6 +89,22 @@ export class MainModelDecisionService implements DecisionService {
       },
       'main model decision',
     );
-    return decisionSchema.parse(decision);
+    if (decision.type !== 'final_answer' && decision.type !== 'answer_ready')
+      return decisionSchema.parse(decision);
+    return decisionSchema.parse({
+      ...decision,
+      citations: (decision.citations ?? []).map((citation) => {
+        const document = context.retrievedDocuments.find(
+          (doc) => doc.id === citation.chunkId && doc.documentId === citation.documentId,
+        );
+        if (!document) throw new AppError('INVALID_CITATION', '答案引用无法验证。', 422);
+        return {
+          documentId: document.documentId,
+          chunkId: document.id,
+          title: document.title,
+          ...(document.source !== undefined ? { source: document.source } : {}),
+        };
+      }),
+    });
   }
 }

@@ -19,7 +19,11 @@
 
 `decide(input, context)` 接收任务目标、意图、实体、工具与知识源目录，以及近期消息、摘要、观察结果、检索文档、记忆和取消信号。ContextBuilder 在预算内组装上下文，并为结构化输出 schema 预留空间；预算采用保守估算，并非模型专用 tokenizer 的精确计数。
 
-每次决策调用一次 `model.structuredOutput()`，结果经 [decisionSchema](../../core/decision/decision.schema.ts) 校验：
+每次决策调用一次 `model.structuredOutput()`。模型侧引用只选择 `documentId` 和 `chunkId`；服务端从本次检索文档填充 `title` 和可选的原文 `source`，再经 [decisionSchema](../../core/decision/decision.schema.ts) 校验。引用 ID 不存在时拒绝回答，最终 Guard 继续校验完整引用；自定义 Decision Provider 的契约不变。
+
+live 且 `ANSWER_STREAMING=true` 时，模型只选择 `tool_call`、`ask_user` 或 `answer_ready`。`answer_ready` 只含引用 ID，不在 JSON 中撰写整篇回答；正文由独立 AnswerService 生成。mock 和显式关闭此开关时继续使用既有 final_answer 决策。
+
+决策类型：
 
 - `tool_call`：工具名称与参数；RAG 通过 `knowledge_search` / `case_search` 工具执行。
 - `final_answer`：答案和可选引用。

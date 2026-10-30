@@ -10,11 +10,29 @@ import type { Principal, Metadata } from '../../core/common.types.js';
 import type { StorageService } from '../../core/storage/storage.service.js';
 import { AppError } from '../../core/errors.js';
 export class InMemoryStorage implements StorageService {
+  async scanKnowledgeChunks(
+    afterId: string | undefined,
+    limit: number,
+  ): Promise<RetrievedDocument[]> {
+    return structuredClone(
+      [...this.chunks.values()]
+        .flat()
+        .filter((chunk) => !afterId || chunk.id > afterId)
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        .slice(0, limit),
+    );
+  }
   readonly conversations = new Map<string, Principal>();
   private conversationDates = new Map<string, string>();
+  private deletedConversations = new Set<string>();
   async listConversations(p: Principal, limit: number): Promise<ConversationInfo[]> {
     return [...this.conversations]
-      .filter(([, owner]) => owner.tenantId === p.tenantId && owner.userId === p.userId)
+      .filter(
+        ([id, owner]) =>
+          !this.deletedConversations.has(id) &&
+          owner.tenantId === p.tenantId &&
+          owner.userId === p.userId,
+      )
       .map(([id]) => {
         const messages = this.messageRows.filter((m) => m.conversationId === id);
         const createdAt = this.conversationDates.get(id) ?? new Date().toISOString();
@@ -38,16 +56,26 @@ export class InMemoryStorage implements StorageService {
   readonly memories = new Map<string, MemoryItem>();
   async assertConversation(id: string, p: Principal): Promise<void> {
     const old = this.conversations.get(id);
-    if (!old) throw new AppError('NOT_FOUND', '会话不存在。', 404);
+    if (!old || this.deletedConversations.has(id))
+      throw new AppError('NOT_FOUND', '会话不存在。', 404);
     if (old.tenantId !== p.tenantId || old.userId !== p.userId)
       throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
   }
   async ensureConversation(id: string, p: Principal): Promise<void> {
+    if (this.deletedConversations.has(id))
+      throw new AppError('NOT_FOUND', '会话已删除，请开启新对话。', 404);
     const old = this.conversations.get(id);
     if (old && (old.tenantId !== p.tenantId || old.userId !== p.userId))
       throw new AppError('FORBIDDEN', '无权访问此会话。', 403);
     this.conversations.set(id, structuredClone(p));
     if (!this.conversationDates.has(id)) this.conversationDates.set(id, new Date().toISOString());
+  }
+  async deleteConversation(id: string, p: Principal): Promise<void> {
+    await this.assertConversation(id, p);
+    this.deletedConversations.add(id);
+    for (let i = this.messageRows.length - 1; i >= 0; i--)
+      if (this.messageRows[i]?.conversationId === id) this.messageRows.splice(i, 1);
+    this.summaries.delete(id);
   }
   async addMessage(m: Message): Promise<void> {
     this.messageRows.push(structuredClone(m));
@@ -59,6 +87,7 @@ export class InMemoryStorage implements StorageService {
     return structuredClone(this.summaries.get(id));
   }
   async saveSummary(s: ConversationSummary): Promise<void> {
+    if (this.deletedConversations.has(s.conversationId)) return;
     this.summaries.set(s.conversationId, structuredClone(s));
   }
   async saveRun(s: AgentState, tenantId: string): Promise<void> {

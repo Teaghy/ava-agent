@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentClient } from '../src/index.js';
 
 afterEach(() => vi.unstubAllGlobals());
-const snapshot = { enabled: true, safeMode: false, plugins: [], providers: [] };
+const snapshot = { enabled: true, safeMode: false, plugins: [], providers: [], runtimePlugins: [] };
 describe('Plugin management client', () => {
   it('uploads a ZIP as binary with credentials, cancellation and a size guard', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(snapshot));

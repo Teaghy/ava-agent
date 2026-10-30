@@ -8,7 +8,14 @@ export const embeddingPlugin = {
   provide: ['embedding'],
   apply(
     ctx: Context,
-    config: { mock: boolean; baseURL: string; apiKey: string; model: string; dimensions: number },
+    config: {
+      mock: boolean;
+      baseURL: string;
+      apiKey: string;
+      model: string;
+      dimensions: number;
+      batchSize?: number;
+    },
   ) {
     ctx.provide('embedding', config.mock ? new MockEmbedding() : new OpenAIEmbedding(config));
   },

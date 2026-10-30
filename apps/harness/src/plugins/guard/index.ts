@@ -8,6 +8,7 @@ export const guardPlugin = {
   apply(ctx: Context) {
     const policies = new Map<string, AnswerPolicy>();
     const guard: GuardService = {
+      canStream: () => policies.size === 0 && ctx.responsePolicy.allowStreaming === true,
       register(policy) {
         if (policies.has(policy.name))
           throw new AppError('DUPLICATE_POLICY', `校验策略 ${policy.name} 已注册。`);

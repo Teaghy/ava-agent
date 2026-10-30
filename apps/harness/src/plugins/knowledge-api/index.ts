@@ -5,11 +5,17 @@ import { AppError } from '../../core/errors.js';
 export const knowledgeApiPlugin = {
   name: 'knowledge-api',
   inject: ['http', 'rag'],
-  apply(ctx: Context, config: AuthConfig) {
+  apply(ctx: Context, config: AuthConfig & { isPaused?: () => boolean }) {
     ctx.effect(() =>
       ctx.http.post('/api/v1/knowledge', async (request) => {
         const principal = authenticate(request, config);
         if (!principal.admin) throw new AppError('FORBIDDEN', '此接口需要管理员权限。', 403);
+        if (config.isPaused?.())
+          throw new AppError(
+            'MAINTENANCE_IN_PROGRESS',
+            '模型或插件正在切换，请稍后导入知识。',
+            503,
+          );
         const parsed = knowledgeDocumentSchema.safeParse(await request.body());
         if (!parsed.success) throw new AppError('INVALID_DOCUMENT', '知识文档格式不正确。', 400);
         const { metadata: meta, ...document } = parsed.data;

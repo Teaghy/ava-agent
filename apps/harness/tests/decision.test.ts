@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeHarness, principal } from './helpers.js';
 import { mainModelDecisionPlugin } from '../src/plugins/decision-main-model/index.js';
+import { MainModelDecisionService } from '../src/plugins/decision-main-model/main-model-decision.service.js';
 import { modelMockPlugin } from '../src/plugins/model-mock/index.js';
 import type { DecisionService } from '../src/core/decision/decision.service.js';
 import type { StreamEvent } from '../src/core/http/http.types.js';
@@ -16,6 +17,130 @@ async function setup() {
 }
 
 describe('Decision Service boundary', () => {
+  it('uses a short answer-ready decision without composing the final answer in streaming mode', async () => {
+    const h = await setup();
+    vi.spyOn(h.ctx.model, 'structuredOutput').mockImplementation(async (schema) =>
+      schema.parse({
+        type: 'answer_ready',
+        citations: [{ documentId: 'product', chunkId: 'chunk' }],
+      }),
+    );
+    const service = new MainModelDecisionService(h.ctx.model, h.ctx.telemetry, {
+      systemPrompt: '客服',
+      contextTokens: 12000,
+      streamAnswers: true,
+    });
+    const result = await service.decide(
+      { message: 'Price?', entities: {}, availableTools: [], availableKnowledgeSources: [] },
+      {
+        runId: 'planned',
+        conversationId: 'planned',
+        step: 2,
+        recentMessages: [],
+        observations: [],
+        memory: [],
+        signal: new AbortController().signal,
+        retrievedDocuments: [
+          {
+            id: 'chunk',
+            documentId: 'product',
+            title: 'Product',
+            content: '699',
+            tenantId: 'demo',
+            metadata: {},
+            score: 1,
+          },
+        ],
+      },
+    );
+    expect(result).toEqual({
+      type: 'answer_ready',
+      citations: [{ documentId: 'product', chunkId: 'chunk', title: 'Product' }],
+    });
+  });
+
+  it.each([undefined, 'https://example.com/product'])(
+    'resolves citation metadata from retrieved documents (source=%s)',
+    async (source) => {
+      const h = await setup();
+      const document = {
+        id: 'chunk-1',
+        documentId: 'product-v1',
+        title: 'Product',
+        content: 'Price: 699',
+        source,
+        tenantId: 'demo',
+        metadata: {},
+        score: 1,
+      };
+      vi.spyOn(h.ctx.model, 'structuredOutput').mockImplementation(async (schema) =>
+        schema.parse({
+          type: 'final_answer',
+          answer: 'Price: 699',
+          citations: [
+            {
+              chunkId: document.id,
+              documentId: document.documentId,
+              title: 'Model copied the wrong title',
+              source: 'qdrant',
+            },
+          ],
+        }),
+      );
+      const result = await h.ctx.decision.decide(
+        { message: 'Price?', entities: {}, availableTools: [], availableKnowledgeSources: [] },
+        {
+          runId: 'citation-test',
+          conversationId: 'citation-test',
+          step: 2,
+          recentMessages: [],
+          observations: [],
+          memory: [],
+          retrievedDocuments: [document],
+          signal: new AbortController().signal,
+        },
+      );
+      expect(result).toEqual({
+        type: 'final_answer',
+        answer: 'Price: 699',
+        citations: [
+          {
+            chunkId: 'chunk-1',
+            documentId: 'product-v1',
+            title: 'Product',
+            ...(source ? { source } : {}),
+          },
+        ],
+      });
+    },
+  );
+
+  it('rejects citation IDs outside this run instead of repairing them', async () => {
+    const h = await setup();
+    vi.spyOn(h.ctx.model, 'structuredOutput').mockImplementation(async (schema) =>
+      schema.parse({
+        type: 'final_answer',
+        answer: 'Unverified',
+        citations: [{ chunkId: 'foreign-chunk', documentId: 'foreign-document', title: 'Unknown' }],
+      }),
+    );
+    await expect(
+      h.ctx.decision.decide(
+        { message: 'Price?', entities: {}, availableTools: [], availableKnowledgeSources: [] },
+        {
+          runId: 'citation-test',
+          conversationId: 'citation-test',
+          step: 2,
+          recentMessages: [],
+          observations: [],
+          memory: [],
+          retrievedDocuments: [],
+          signal: new AbortController().signal,
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_CITATION' });
+  });
+
   it('passes the scoped tool/source catalog and run context to the default main-model provider', async () => {
     const h = await setup();
     await h.ctx.memory.remember({

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { applicationPresetSchema } from '@ava/protocol';
+import { applicationPresetSchema, modelCompatibilitySchema } from '@ava/protocol';
 const bool = z.enum(['true', 'false']).transform((v) => v === 'true');
 const principal = z.object({
   tenantId: z.string().min(1),
@@ -46,10 +46,15 @@ export const configSchema = z
     LLM_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
     LLM_API_KEY: z.string().default(''),
     LLM_MODEL: z.string().default('gpt-4.1-mini'),
+    LLM_MESSAGE_FORMAT: modelCompatibilitySchema.shape.messageFormat.default('auto'),
+    LLM_JSON_OUTPUT: modelCompatibilitySchema.shape.jsonOutput.default('auto'),
+    LLM_STREAM_USAGE: modelCompatibilitySchema.shape.streamUsage.default('auto'),
+    ANSWER_STREAMING: bool.default(true),
     EMBEDDING_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
     EMBEDDING_API_KEY: z.string().default(''),
     EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
     EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(1536),
+    EMBEDDING_BATCH_SIZE: z.coerce.number().int().min(1).max(2048).default(10),
     MEM0_ENABLED: bool.default(false),
     MEM0_URL: z.string().url().default('http://localhost:8888'),
     MEM0_API_KEY: z.string().default(''),

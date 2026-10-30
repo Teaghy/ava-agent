@@ -14,12 +14,20 @@ import {
   Square,
   X,
   LoaderCircle,
+  Trash2,
 } from 'lucide-react';
 import { Brand } from '../components/Brand';
 import { Message } from '../components/message/Message';
 import { Settings } from '../components/chat/Settings';
 import { presetCopy } from '../lib/presets';
-import { loadClientConfig, loadConversations, loadHistory, sendMessage } from '../services/api';
+import {
+  deleteConversation,
+  loadClientConfig,
+  loadConversations,
+  loadHistory,
+  sendMessage,
+} from '../services/api';
+import { readToken, saveToken } from '../services/token';
 import {
   type ChatMessage,
   type Citation,
@@ -34,7 +42,7 @@ export function ChatPage() {
   const [config, setConfig] = useState<ClientConfig>();
   const [connectError, setConnectError] = useState('');
   const [reload, setReload] = useState(0);
-  const [token, setToken] = useState('');
+  const [token, setToken] = useState(readToken);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -44,9 +52,11 @@ export function ChatPage() {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
-  const [progress, setProgress] = useState('');
   const [notice, setNotice] = useState('');
   const [sources, setSources] = useState<Citation[] | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
+  const [deletingId, setDeletingId] = useState('');
+  const deleteDialog = useRef<HTMLDialogElement>(null);
   const active = useRef<AbortController | null>(null);
   const historyRequest = useRef<AbortController | null>(null);
   const identityVersion = useRef(0);
@@ -60,6 +70,10 @@ export function ChatPage() {
   useEffect(() => {
     document.title = `Ava · ${copy.label}`;
   }, [copy.label]);
+  useEffect(() => {
+    if (deleteTarget) deleteDialog.current?.showModal();
+    else deleteDialog.current?.close();
+  }, [deleteTarget]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -95,7 +109,7 @@ export function ChatPage() {
     if (!scroller.current) return;
     if (!messages.length) scroller.current.scrollTop = 0;
     else if (nearBottom.current) scroller.current.scrollTop = scroller.current.scrollHeight;
-  }, [messages, progress]);
+  }, [messages]);
   useEffect(() => {
     if (textarea.current) {
       textarea.current.style.height = 'auto';
@@ -115,8 +129,8 @@ export function ChatPage() {
     setLoadingHistory(false);
     setSources(null);
     setNotice('');
+    setDeleteTarget(null);
     setSidebarOpen(false);
-    setProgress('');
     textarea.current?.focus();
   };
   const openConversation = async (id: string) => {
@@ -135,7 +149,6 @@ export function ChatPage() {
     setDraft('');
     setSources(null);
     setBusy(false);
-    setProgress('');
     setLoadingHistory(true);
     setNotice('');
     setSidebarOpen(false);
@@ -152,10 +165,19 @@ export function ChatPage() {
   };
   const send = async (text: string) => {
     const message = text.trim();
-    if (!message || busy || loadingHistory || !connected || message.length > maxLength) return;
+    if (
+      !message ||
+      busy ||
+      loadingHistory ||
+      deletingId === conversationId ||
+      !connected ||
+      message.length > maxLength
+    )
+      return;
     const controller = new AbortController();
     active.current = controller;
     const id = newId();
+    const requestStartedAt = performance.now();
     nearBottom.current = true;
     setMessages((previous) => [
       ...previous,
@@ -166,12 +188,13 @@ export function ChatPage() {
         content: '',
         createdAt: new Date().toISOString(),
         state: 'streaming',
+        requestStartedAt,
+        progress: '正在理解你的问题',
       },
     ]);
     setDraft('');
     setBusy(true);
     setNotice('');
-    setProgress('正在理解你的问题');
     setSources(null);
     const update = (change: Partial<ChatMessage>) =>
       setMessages((previous) => previous.map((m) => (m.id === id ? { ...m, ...change } : m)));
@@ -183,22 +206,24 @@ export function ChatPage() {
             update({ runId: event.data.runId });
             break;
           case 'agent.step':
-            setProgress('正在整理信息');
+            update({ progress: event.data.phase === 'answer' ? '正在生成回答' : '正在整理信息' });
             break;
           case 'tool.started':
-            setProgress(
-              event.data.tool.includes('search') ? '正在查找相关知识' : '正在查询服务信息',
-            );
+            update({
+              progress: event.data.tool.includes('search')
+                ? '正在查找相关知识'
+                : '正在查询服务信息',
+            });
             break;
           case 'rag.started':
-            setProgress('正在检索知识库');
+            update({ progress: '正在检索知识库' });
             break;
           case 'rag.completed':
-            setProgress(
-              event.data.count
+            update({
+              progress: event.data.count
                 ? `找到 ${event.data.count} 条相关资料，正在组织回答`
                 : '正在确认是否需要补充信息',
-            );
+            });
             break;
           case 'answer.delta':
             setMessages((previous) =>
@@ -206,7 +231,7 @@ export function ChatPage() {
                 m.id === id ? { ...m, content: m.content + event.data.text } : m,
               ),
             );
-            setProgress('正在生成回答');
+            update({ progress: '正在输出回答' });
             break;
           case 'answer.completed':
             update({
@@ -214,22 +239,22 @@ export function ChatPage() {
               citations: event.data.citations,
               runId: event.data.runId,
               state: 'complete',
+              durationMs: performance.now() - requestStartedAt,
             });
-            setProgress('');
             break;
         }
       });
     } catch (error) {
-      update(
-        controller.signal.aborted
+      update({
+        durationMs: performance.now() - requestStartedAt,
+        ...(controller.signal.aborted
           ? { state: 'stopped' }
-          : { state: 'failed', error: errorText(error) },
-      );
+          : { state: 'failed', error: errorText(error) }),
+      });
     } finally {
       if (active.current === controller) {
         active.current = null;
         setBusy(false);
-        setProgress('');
         void refresh();
         textarea.current?.focus();
       }
@@ -240,7 +265,31 @@ export function ChatPage() {
     reset();
     setConversations([]);
     setToken(value);
+    if (!saveToken(value)) setNotice('浏览器无法保存会话凭证，刷新后需要重新填写 Token。');
     if (value === token) void refresh();
+  };
+  const removeConversation = async () => {
+    if (!deleteTarget || deletingId || (busy && deleteTarget.id === conversationId)) return;
+    const version = identityVersion.current;
+    const id = deleteTarget.id;
+    setDeletingId(id);
+    try {
+      await deleteConversation(id, token);
+      if (version !== identityVersion.current) return;
+      identityVersion.current++;
+      if (id === conversationId) reset();
+      setConversations((previous) => previous.filter((item) => item.id !== id));
+      setDeleteTarget(null);
+      setNotice('对话已删除。');
+      void refresh();
+    } catch (error) {
+      if (version === identityVersion.current) {
+        setDeleteTarget(null);
+        setNotice(errorText(error));
+      }
+    } finally {
+      setDeletingId('');
+    }
   };
   const currentTitle =
     conversations.find((c) => c.id === conversationId)?.title ??
@@ -266,7 +315,7 @@ export function ChatPage() {
           </span>
           <span className="wordmark-caption">{copy.label}</span>
         </a>
-        <button className="new-chat-button" onClick={reset}>
+        <button className="new-chat-button" onClick={reset} disabled={!!deletingId}>
           <Plus size={18} />
           开启新对话<span>↗</span>
         </button>
@@ -286,16 +335,31 @@ export function ChatPage() {
           {conversations
             .filter((c) => c.title.toLowerCase().includes(search.toLowerCase()))
             .map((c) => (
-              <button
+              <div
                 key={c.id}
-                className={`history-item ${c.id === conversationId ? 'selected' : ''}`}
-                onClick={() => void openConversation(c.id)}
-                title={c.title}
+                className={`history-row ${c.id === conversationId ? 'selected' : ''}`}
               >
-                <MessageSquare size={15} />
-                <span>{c.title}</span>
-                {c.id === conversationId && <span className="selected-dot" />}
-              </button>
+                <button
+                  className="history-item"
+                  onClick={() => void openConversation(c.id)}
+                  disabled={!!deletingId}
+                  title={c.title}
+                >
+                  <MessageSquare size={15} />
+                  <span>{c.title}</span>
+                  {c.id === conversationId && <span className="selected-dot" />}
+                </button>
+                <button
+                  type="button"
+                  className="icon-button history-delete"
+                  aria-label={`删除对话：${c.title}`}
+                  title={busy && c.id === conversationId ? '请先停止生成再删除' : '删除对话'}
+                  disabled={!!deletingId || (busy && c.id === conversationId)}
+                  onClick={() => setDeleteTarget(c)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             ))}
           {!conversations.length && (
             <p className="history-empty">
@@ -431,14 +495,6 @@ export function ChatPage() {
                       assistantLabel={copy.label}
                     />
                   ))}
-                  <div className="progress-line" role="status" aria-live="polite">
-                    {busy && (
-                      <>
-                        <span className="progress-dot" />
-                        {progress}
-                      </>
-                    )}
-                  </div>
                 </section>
               )}
             </div>
@@ -470,7 +526,7 @@ export function ChatPage() {
                   ref={textarea}
                   rows={2}
                   value={draft}
-                  disabled={loadingHistory}
+                  disabled={loadingHistory || deletingId === conversationId}
                   maxLength={maxLength}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => {
@@ -511,7 +567,12 @@ export function ChatPage() {
                       <button
                         className="send-button"
                         type="submit"
-                        disabled={!draft.trim() || !connected || loadingHistory}
+                        disabled={
+                          !draft.trim() ||
+                          !connected ||
+                          loadingHistory ||
+                          deletingId === conversationId
+                        }
                         aria-label="发送消息"
                         title="发送消息"
                       >
@@ -530,6 +591,42 @@ export function ChatPage() {
           {sources && <CitationPanel sources={sources} onClose={() => setSources(null)} />}
         </div>
       </main>
+      <dialog
+        ref={deleteDialog}
+        className="settings-dialog conversation-delete-dialog"
+        aria-labelledby="delete-conversation-title"
+        onClose={() => setDeleteTarget(null)}
+        onCancel={(event) => {
+          if (deletingId) event.preventDefault();
+          else setDeleteTarget(null);
+        }}
+      >
+        <div className="dialog-heading">
+          <h2 id="delete-conversation-title">删除这段对话？</h2>
+        </div>
+        <p className="delete-conversation-name">{deleteTarget?.title}</p>
+        <p className="settings-note">
+          聊天消息和摘要将被清除，删除后无法恢复。维护审计记录仍按系统策略保留。
+        </p>
+        <div className="dialog-footer">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={!!deletingId}
+            onClick={() => setDeleteTarget(null)}
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            className="primary-button delete-conversation-confirm"
+            disabled={!!deletingId || (busy && deleteTarget?.id === conversationId)}
+            onClick={() => void removeConversation()}
+          >
+            {deletingId ? '正在删除…' : '确认删除'}
+          </button>
+        </div>
+      </dialog>
       <Settings
         open={settingsOpen}
         config={config}

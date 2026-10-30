@@ -6,12 +6,21 @@ import { H3HttpService } from '../http-h3/http.service.js';
 import { pluginManagerApiPlugin } from '../plugin-manager/index.js';
 import type { PluginManager } from '../plugin-manager/manager.js';
 import { opsRunsApiPlugin } from './runs-api.js';
+import { modelSettingsApiPlugin } from '../model-settings/index.js';
+import type { ModelSettingsController } from '../model-settings/controller.js';
 
 /** Boot infrastructure: never registered in the user-managed plugin catalog. */
 export const opsConsolePlugin = {
   name: 'ops-console',
   provide: ['ops'],
-  apply(ctx: Context, config: AuthConfig & { manager: PluginManager; secrets?: string[] }) {
+  apply(
+    ctx: Context,
+    config: AuthConfig & {
+      manager: PluginManager;
+      secrets?: string[];
+      models?: ModelSettingsController;
+    },
+  ) {
     const http = new H3HttpService();
     ctx.provide('ops', http);
     ctx.effect(() => () => http.stop());
@@ -32,5 +41,7 @@ export const opsConsolePlugin = {
     ctx.effect(() => http.static('/', fileURLToPath(new URL(assets, import.meta.url))));
     ctx.plugin(pluginManagerApiPlugin, config);
     ctx.plugin(opsRunsApiPlugin, config);
+    if (config.models)
+      ctx.plugin(modelSettingsApiPlugin, { keys: config.keys, models: config.models });
   },
 };

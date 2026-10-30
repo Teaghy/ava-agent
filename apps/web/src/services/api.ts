@@ -6,6 +6,8 @@ export const loadConversations = (token: string, signal?: AbortSignal) =>
   new AgentClient({ token }).conversations(signal);
 export const loadHistory = (conversationId: string, token: string, signal?: AbortSignal) =>
   new AgentClient({ token }).history(conversationId, signal);
+export const deleteConversation = (conversationId: string, token: string, signal?: AbortSignal) =>
+  new AgentClient({ token }).deleteConversation(conversationId, signal);
 export async function sendMessage(
   conversationId: string,
   message: string,

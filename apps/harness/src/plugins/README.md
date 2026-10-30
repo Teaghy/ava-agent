@@ -10,6 +10,7 @@
 | 运行与决策 | [decision-main-model](decision-main-model/README.md) | `decision`，主模型结构化决策                            |
 | 模型       | [model-openai](model-openai/README.md)               | `model`，OpenAI 兼容接口                                |
 | 模型       | [model-mock](model-mock/README.md)                   | `model`，确定性演示实现                                 |
+| 模型       | [model-compatibility](model-compatibility/README.md) | `modelCompatibility`，能力配置、部署规则与消息转换      |
 | 模型       | [embedding-openai](embedding-openai/README.md)       | `embedding`，真实或模拟向量化                           |
 | 检索       | [knowledge-registry](knowledge-registry/README.md)   | `knowledge`，知识源注册与路由                           |
 | 检索       | [knowledge-qdrant](knowledge-qdrant/README.md)       | `qdrantKnowledge`，混合检索与导入                       |
@@ -21,6 +22,7 @@
 | 工具与校验 | [response-policy](response-policy/README.md)         | `responsePolicy`，可替换的回答证据要求                  |
 | 插件管理   | [plugin-manager](plugin-manager/README.md)           | 本地 JS 的登记、参数、启停、Provider 切换与平台管理 API |
 | 插件维护   | [ops-console](ops-console/README.md)                 | `ops`，默认关闭的独立维护监听、界面与维护鉴权           |
+| 模型维护   | [model-settings](model-settings/README.md)           | 在线配置模型、密钥及自动重建知识索引                    |
 | 会话与记忆 | [sessions](sessions/README.md)                       | `sessions`，消息、摘要、运行检查点                      |
 | 会话与记忆 | [event-store](event-store/README.md)                 | `eventStore`，事件追加与回放                            |
 | 会话与记忆 | [memory](memory/README.md)                           | `memory`，基于 Storage 的长期记忆                       |

@@ -4,4 +4,7 @@ export { safeSource } from '@ava/shared';
 export type ChatMessage = Message & {
   state?: 'streaming' | 'complete' | 'stopped' | 'failed';
   error?: string;
+  progress?: string;
+  requestStartedAt?: number;
+  durationMs?: number;
 };

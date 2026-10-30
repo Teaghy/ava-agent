@@ -13,6 +13,7 @@ import { streamChat } from './chat.js';
 import { createKnowledgeClient } from './knowledge.js';
 import { createPluginClient } from './plugins.js';
 import { createRunClient } from './runs.js';
+import { createModelClient } from './models.js';
 
 export type Request = (path: string, init?: RequestInit) => Promise<Response>;
 export interface ClientOptions {
@@ -26,6 +27,7 @@ export class AgentClient {
   readonly plugins;
   readonly runs;
   readonly ops;
+  readonly models;
   private readonly request: Request;
   constructor(options: ClientOptions = {}) {
     const baseURL = (options.baseURL ?? '').replace(/\/$/, '');
@@ -52,6 +54,7 @@ export class AgentClient {
     this.knowledge = createKnowledgeClient(this.request);
     this.plugins = createPluginClient(this.request);
     this.runs = createRunClient(this.request);
+    this.models = createModelClient(this.request);
     this.ops = {
       access: async (signal?: AbortSignal) =>
         opsAccessSchema.parse(await (await this.request('/api/v1/ops/access', { signal })).json()),
@@ -71,6 +74,17 @@ export class AgentClient {
     return z.object({ messages: z.array(messageSchema), limit: z.number() }).parse(
       await (
         await this.request('/api/v1/conversations/history', {
+          method: 'POST',
+          body: JSON.stringify(historyRequestSchema.parse({ conversationId })),
+          signal,
+        })
+      ).json(),
+    );
+  }
+  async deleteConversation(conversationId: string, signal?: AbortSignal) {
+    return z.object({ deleted: z.literal(true) }).parse(
+      await (
+        await this.request('/api/v1/conversations/delete', {
           method: 'POST',
           body: JSON.stringify(historyRequestSchema.parse({ conversationId })),
           signal,

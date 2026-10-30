@@ -2,6 +2,7 @@ import { knowledgeRegistryPlugin } from '../plugins/knowledge-registry/index.js'
 import { knowledgeQdrantPlugin } from '../plugins/knowledge-qdrant/index.js';
 import { knowledgeCasesPlugin } from '../plugins/knowledge-cases/index.js';
 import { readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type { Config } from '../config/index.js';
 import { createContext } from './context.js';
 import { storageMemoryPlugin } from '../plugins/storage-memory/index.js';
@@ -9,10 +10,15 @@ import { storagePostgresPlugin } from '../plugins/storage-postgres/index.js';
 import { cacheMemoryPlugin } from '../plugins/cache-memory/index.js';
 import { cacheRedisPlugin } from '../plugins/cache-redis/index.js';
 import { vectorMemoryPlugin } from '../plugins/vector-memory/index.js';
-import { vectorQdrantPlugin } from '../plugins/vector-qdrant/index.js';
-import { modelOpenAIPlugin } from '../plugins/model-openai/index.js';
+import { createQdrantVector, vectorQdrantPlugin } from '../plugins/vector-qdrant/index.js';
+import { ModelSettingsController } from '../plugins/model-settings/controller.js';
+import {
+  ModelCompatibilityRegistry,
+  modelCompatibilityPlugin,
+} from '../plugins/model-compatibility/index.js';
 import { modelMockPlugin, createMockModelPlugin } from '../plugins/model-mock/index.js';
 import { mainModelDecisionPlugin } from '../plugins/decision-main-model/index.js';
+import { answerModelPlugin } from '../plugins/answer-model/index.js';
 import { embeddingPlugin } from '../plugins/embedding-openai/index.js';
 import { rerankerPlugin } from '../plugins/reranker/index.js';
 import { memoryPlugin } from '../plugins/memory/index.js';
@@ -47,6 +53,7 @@ import { opsConsolePlugin } from '../plugins/ops-console/index.js';
 import { responsePolicyPlugin } from '../plugins/response-policy/index.js';
 import { applicationPresets } from './presets.js';
 import type { PluginSlot } from '@ava/protocol';
+import type { Fiber } from 'cordis';
 export async function createHarness(config: Config, options: HarnessOptions = {}) {
   const mock = config.APP_MODE === 'mock';
   validateExtensions(options, mock);
@@ -59,8 +66,43 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
     options.pluginManagement ?? false,
     options.startupTimeoutMs,
   );
+  const ctx = createContext();
+  const modelCompatibility = new ModelCompatibilityRegistry();
+  const models = await ModelSettingsController.prepare(
+    config,
+    options.pluginManagement
+      ? join(dirname(options.pluginManagement.statePath), 'models.json')
+      : false,
+    (collection, dimensions) =>
+      createQdrantVector({
+        url: config.QDRANT_URL,
+        apiKey: config.QDRANT_API_KEY,
+        collection,
+        dimensions,
+      }),
+    () =>
+      providers.model !== undefined ||
+      providers.embedding ||
+      providers.vector ||
+      providers.rag ||
+      pluginManager.hasProvider('model') ||
+      pluginManager.hasProvider('embedding')
+        ? '当前使用自定义模型或向量 Provider，请先停用对应 Provider。'
+        : undefined,
+    () => ctx.get('telemetry'),
+    modelCompatibility,
+  );
+  models.bind(
+    () => ctx.storage,
+    (operation) => pluginManager.maintenance(operation),
+  );
   if (!mock) {
-    if (!pluginManager.hasProvider('model') && providers.model === undefined && !config.LLM_API_KEY)
+    if (
+      !config.OPS_ENABLED &&
+      !pluginManager.hasProvider('model') &&
+      providers.model === undefined &&
+      !models.view().llm.keyConfigured
+    )
       throw new AppError(
         'MISSING_PROVIDER_CREDENTIALS',
         '默认 live 模型需要 LLM_API_KEY；自定义模型请通过 providers.model 注册。',
@@ -68,14 +110,14 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
     if (
       !pluginManager.hasProvider('embedding') &&
       !providers.embedding &&
-      !config.EMBEDDING_API_KEY
+      !models.view().embedding.keyConfigured &&
+      !config.OPS_ENABLED
     )
       throw new AppError(
         'MISSING_PROVIDER_CREDENTIALS',
         '默认 live Embedding 需要 EMBEDDING_API_KEY；自定义算法请通过 providers.embedding 注册。',
       );
   }
-  const ctx = createContext();
   const external = config.APP_MODE === 'live' || config.INFRA_MODE === 'external';
   const prompt =
     options.systemPrompt ??
@@ -83,6 +125,7 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
   const auth = {
     keys: config.API_KEYS,
   };
+  const answerPrompt = `${options.systemPrompt ?? `你是${presetName === 'customer-service' ? '产品与售后客服' : presetName === 'knowledge' ? '知识库问答助手' : '通用对话助手'}。`}\n${await readFile(new URL('../prompts/answer.md', import.meta.url), 'utf8')}`;
   const base = (
     slot: PluginSlot,
     install: BaseProvider['install'],
@@ -104,26 +147,24 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
                 ctx.plugin(providers.model as Exclude<typeof providers.model, false | undefined>)
             : mock
               ? () => ctx.plugin(mockModel)
-              : () =>
-                  ctx.plugin(modelOpenAIPlugin, {
-                    baseURL: config.LLM_BASE_URL,
-                    apiKey: config.LLM_API_KEY,
-                    model: config.LLM_MODEL,
-                  }),
+              : () => ctx.plugin(models.modelPlugin),
         mock ? 'model-mock' : 'model-openai',
       ),
       embedding: base(
         'embedding',
         providers.embedding
           ? () => ctx.plugin(providers.embedding!)
-          : () =>
-              ctx.plugin(embeddingPlugin, {
-                mock,
-                baseURL: config.EMBEDDING_BASE_URL,
-                apiKey: config.EMBEDDING_API_KEY,
-                model: config.EMBEDDING_MODEL,
-                dimensions: config.EMBEDDING_DIMENSIONS,
-              }),
+          : !mock
+            ? () => ctx.plugin(models.embeddingPlugin)
+            : () =>
+                ctx.plugin(embeddingPlugin, {
+                  mock,
+                  baseURL: config.EMBEDDING_BASE_URL,
+                  apiKey: config.EMBEDDING_API_KEY,
+                  model: config.EMBEDDING_MODEL,
+                  dimensions: config.EMBEDDING_DIMENSIONS,
+                  batchSize: config.EMBEDDING_BATCH_SIZE,
+                }),
         mock ? 'embedding-mock' : 'embedding-openai',
       ),
       reranker: base(
@@ -141,7 +182,16 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
             : () => ctx.plugin(memoryPlugin),
         config.MEM0_ENABLED ? 'memory-mem0' : 'memory',
       ),
-      rag: base('rag', () => ctx.plugin(providers.rag ?? ragPlugin), 'rag'),
+      rag: base(
+        'rag',
+        () =>
+          providers.rag
+            ? ctx.plugin(providers.rag)
+            : ctx.plugin(ragPlugin, {
+                runWrite: (operation) => pluginManager.knowledgeWrite(operation),
+              }),
+        'rag',
+      ),
       responsePolicy: base(
         'responsePolicy',
         providers.responsePolicy
@@ -157,39 +207,47 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
               ctx.plugin(mainModelDecisionPlugin, {
                 systemPrompt: prompt,
                 contextTokens: config.CONTEXT_TOKEN_BUDGET,
+                streamAnswers: !mock && config.ANSWER_STREAMING,
               }),
         'decision-main-model',
       ),
     },
     options.startupTimeoutMs ?? 30000,
   );
+  const application = (fiber: Fiber & PromiseLike<Fiber>) => {
+    runtime.application(fiber);
+    return fiber;
+  };
   try {
     // Cordis owns scheduling, service activation, dependency invalidation and disposal.
     const fibers = [
+      ctx.plugin(modelCompatibilityPlugin, modelCompatibility),
       ctx.plugin(observabilityPlugin, {
         enabled: config.OTEL_ENABLED,
         endpoint: config.OTEL_EXPORTER_OTLP_ENDPOINT,
         quiet: options.quiet,
       }),
       providers.storage
-        ? ctx.plugin(providers.storage)
+        ? application(ctx.plugin(providers.storage))
         : external
           ? ctx.plugin(storagePostgresPlugin, { url: config.DATABASE_URL })
           : ctx.plugin(storageMemoryPlugin),
       providers.cache
-        ? ctx.plugin(providers.cache)
+        ? application(ctx.plugin(providers.cache))
         : external
           ? ctx.plugin(cacheRedisPlugin, { url: config.REDIS_URL })
           : ctx.plugin(cacheMemoryPlugin),
       providers.vector
-        ? ctx.plugin(providers.vector)
+        ? application(ctx.plugin(providers.vector))
         : external
-          ? ctx.plugin(vectorQdrantPlugin, {
-              url: config.QDRANT_URL,
-              apiKey: config.QDRANT_API_KEY,
-              collection: config.QDRANT_COLLECTION,
-              dimensions: mock ? 64 : config.EMBEDDING_DIMENSIONS,
-            })
+          ? mock
+            ? ctx.plugin(vectorQdrantPlugin, {
+                url: config.QDRANT_URL,
+                apiKey: config.QDRANT_API_KEY,
+                collection: config.QDRANT_COLLECTION,
+                dimensions: 64,
+              })
+            : ctx.plugin(models.vectorPlugin)
           : ctx.plugin(vectorMemoryPlugin),
       ...pluginManager.mount(ctx, runtime),
       ctx.plugin(eventStorePlugin),
@@ -200,6 +258,10 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       ctx.plugin(knowledgeCasesPlugin),
       ...(preset.knowledgeTools ? [ctx.plugin(knowledgeToolPlugin)] : []),
       ctx.plugin(guardPlugin),
+      ctx.plugin(answerModelPlugin, {
+        systemPrompt: answerPrompt,
+        contextTokens: config.CONTEXT_TOKEN_BUDGET,
+      }),
       ...((options.demoTools ?? (mock && preset.demoTools))
         ? [ctx.plugin(mockBusinessToolsPlugin)]
         : []),
@@ -209,6 +271,11 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
           maxToolCalls: config.MAX_TOOL_CALLS,
           maxRagSearches: config.MAX_RAG_SEARCHES,
           runTimeoutMs: config.RUN_TIMEOUT_MS,
+          streamAnswers: config.ANSWER_STREAMING,
+          insufficientEvidenceReply:
+            presetName === 'customer-service'
+              ? '我目前的服务范围是产品咨询、使用指导和售后支持，暂时无法为这个问题提供可靠答复。你可以补充产品型号或具体业务问题；如需进一步确认，请联系人工客服。'
+              : undefined,
           isPaused: () => pluginManager.changing,
         });
         pluginManager.attachAgent(fiber);
@@ -225,18 +292,12 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
             ctx.plugin(opsConsolePlugin, {
               keys: config.OPS_API_KEYS,
               manager: pluginManager,
-              secrets: [
-                ...Object.keys(config.API_KEYS),
-                ...Object.keys(config.OPS_API_KEYS),
-                config.LLM_API_KEY,
-                config.EMBEDDING_API_KEY,
-                config.MEM0_API_KEY,
-                config.QDRANT_API_KEY,
-              ],
+              secrets: models.secrets,
+              models,
             }),
           ]
         : []),
-      ctx.plugin(knowledgeApiPlugin, auth),
+      ctx.plugin(knowledgeApiPlugin, { ...auth, isPaused: () => pluginManager.changing }),
       ctx.plugin(conversationsApiPlugin, auth),
       ctx.plugin(webStaticPlugin, () => ({
         mode: config.APP_MODE,
@@ -250,7 +311,7 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
               : 'storage',
         persistence: providers.storage ? 'custom' : external ? 'postgres' : 'memory',
       })),
-      ...(options.plugins ?? []).map((plugin) => ctx.plugin(plugin)),
+      ...(options.plugins ?? []).map((plugin) => application(ctx.plugin(plugin))),
     ];
     await awaitPlugins(ctx, fibers, options.startupTimeoutMs ?? 30000);
     await runtime.ready();
@@ -261,7 +322,11 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       )
         throw new AppError('PROVIDER_NOT_READY', `Provider ${slot} 已激活但未发布对应服务。`);
     }
-    if (config.SEED_KNOWLEDGE && presetName === 'customer-service')
+    if (
+      config.SEED_KNOWLEDGE &&
+      presetName === 'customer-service' &&
+      (mock || models.view().embedding.keyConfigured || providers.embedding)
+    )
       await ctx.rag.ingest(demoKnowledge, config.SEED_TENANT_ID);
     ctx.effect(() =>
       ctx.http.get('/health', async () => ({ body: { status: 'ok', mode: config.APP_MODE } })),
@@ -292,6 +357,7 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       stop: () =>
         (stopping ??= (async () => {
           try {
+            await models.close();
             await pluginManager.close();
             await ctx.ops?.stop();
             opsPort = undefined;

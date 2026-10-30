@@ -27,6 +27,7 @@ export class PluginManager {
   private modules = new Map<string, Plugin>();
   private active = new Set<string>();
   private queue: Promise<unknown> = Promise.resolve();
+  private knowledgeWrites = new Set<Promise<unknown>>();
   private closed = false;
   private recoveryRequired = false;
   private runtime!: PluginRuntime;
@@ -84,6 +85,7 @@ export class PluginManager {
           : {}),
       })),
       providers: this.runtime.sources(this.records),
+      runtimePlugins: this.runtime.inventory(),
     };
   }
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -91,6 +93,9 @@ export class PluginManager {
       return Promise.reject(
         new AppError('PLUGIN_MANAGEMENT_DISABLED', '此部署未启用插件管理。', 403),
       );
+    return this.enqueue(operation);
+  }
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(this.closedError());
     const next = this.queue.then(() => {
       if (this.closed) throw this.closedError();
@@ -98,6 +103,64 @@ export class PluginManager {
     });
     this.queue = next.catch(() => {});
     return next;
+  }
+  /** Shares the plugin queue and execution gate with model/knowledge maintenance. */
+  async knowledgeWrite<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.closed || this.changing)
+      throw new AppError('MAINTENANCE_IN_PROGRESS', '模型或插件正在切换，请稍后导入知识。', 503);
+    const pending = Promise.resolve().then(operation);
+    this.knowledgeWrites.add(pending);
+    try {
+      return await pending;
+    } finally {
+      this.knowledgeWrites.delete(pending);
+    }
+  }
+  maintenance<T>(operation: () => Promise<T>): Promise<T> {
+    return this.enqueue(async () => {
+      this.changing = true;
+      try {
+        try {
+          await withPluginDeadline(
+            this.ctx.agent?.stop() ?? Promise.resolve(),
+            this.timeout,
+            'PLUGIN_DRAIN_TIMEOUT',
+            '当前运行未响应取消，请重启服务。',
+          );
+        } catch (cause) {
+          this.closed = true;
+          this.recoveryRequired = true;
+          throw cause;
+        }
+        let result!: T;
+        let failure: unknown;
+        let failed = false;
+        try {
+          await withPluginDeadline(
+            Promise.allSettled(this.knowledgeWrites),
+            this.timeout,
+            'KNOWLEDGE_DRAIN_TIMEOUT',
+            '知识导入仍在进行，请稍后重试切换。',
+          );
+          result = await operation();
+        } catch (cause) {
+          failed = true;
+          failure = cause;
+        }
+        try {
+          await this.restartAgent();
+          await this.runtime.ready();
+        } catch (cause) {
+          this.closed = true;
+          this.recoveryRequired = true;
+          throw cause;
+        }
+        if (failed) throw failure;
+        return result;
+      } finally {
+        if (!this.closed) this.changing = false;
+      }
+    });
   }
   private closedError(): AppError {
     return this.recoveryRequired

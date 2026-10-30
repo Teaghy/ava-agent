@@ -4,6 +4,7 @@ import { Check, Copy, BookOpen, Square, AlertCircle } from 'lucide-react';
 import { Brand } from '../Brand';
 import type { ChatMessage, Citation } from '../../lib/protocol';
 import { safeSource } from '../../lib/protocol';
+import { RequestProgress } from './RequestProgress';
 export function Message({
   message,
   onSources,
@@ -37,6 +38,22 @@ export function Message({
         <span>Ava</span>
         <span className="assistant-label">{assistantLabel}</span>
       </div>
+      {message.requestStartedAt !== undefined && (
+        <RequestProgress
+          active={message.state === 'streaming'}
+          startedAt={message.requestStartedAt}
+          durationMs={message.durationMs}
+          label={
+            message.state === 'streaming'
+              ? message.progress || '正在整理信息'
+              : message.state === 'failed'
+                ? '请求未完成'
+                : message.state === 'stopped'
+                  ? '已停止'
+                  : '已完成'
+          }
+        />
+      )}
       {message.content ? (
         <div className="markdown">
           <Markdown
@@ -54,12 +71,6 @@ export function Message({
           >
             {message.content}
           </Markdown>
-        </div>
-      ) : message.state === 'streaming' ? (
-        <div className="thinking" aria-label="正在处理">
-          <span />
-          <span />
-          <span />
         </div>
       ) : null}
       {message.state === 'failed' && (

@@ -524,9 +524,14 @@ describe('Extension execution constraints', () => {
     vi.spyOn(h.ctx.decision, 'decide')
       .mockResolvedValueOnce({ type: 'tool_call', tool: 'empty_search', arguments: {} })
       .mockResolvedValueOnce({ type: 'final_answer', answer: '没有证据的答案' });
-    await expect(
-      h.ctx.agent.run({ conversationId: 'empty-search', message: '搜索', principal }),
-    ).rejects.toMatchObject({ code: 'LOW_CONFIDENCE' });
+    const response = await h.ctx.agent.run({
+      conversationId: 'empty-search',
+      message: '搜索',
+      principal,
+    });
+    expect(response.status).toBe('ask_user');
+    expect(response.answer).toContain('服务范围');
+    expect(response.answer).not.toContain('没有证据的答案');
     expect(calls).toBe(1);
   });
 

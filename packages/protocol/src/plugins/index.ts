@@ -65,17 +65,42 @@ export const pluginViewSchema = registration.omit({ config: true }).extend({
   error: z.string().optional(),
 });
 export type PluginView = z.infer<typeof pluginViewSchema>;
+export const runtimePluginStatusSchema = z.enum(['active', 'loading', 'failed', 'disabled']);
 export const providerViewSchema = z.object({
   slot: pluginSlotSchema,
   source: z.enum(['default', 'application', 'plugin']),
   name: z.string(),
   pluginId: z.string().uuid().optional(),
+  status: runtimePluginStatusSchema.optional(),
 });
 export type ProviderView = z.infer<typeof providerViewSchema>;
+export const runtimePluginViewSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  label: z.string(),
+  description: z.string(),
+  category: z.enum([
+    'engine',
+    'model',
+    'knowledge',
+    'tool',
+    'storage',
+    'ops',
+    'transport',
+    'extension',
+  ]),
+  source: z.enum(['builtin', 'application']),
+  status: runtimePluginStatusSchema,
+  services: z.array(z.string()),
+  dependencies: z.array(z.object({ name: z.string(), required: z.boolean() })),
+  parentId: z.string().optional(),
+});
+export type RuntimePluginView = z.infer<typeof runtimePluginViewSchema>;
 export const pluginManagerSnapshotSchema = z.object({
   enabled: z.boolean(),
   safeMode: z.boolean(),
   plugins: z.array(pluginViewSchema),
   providers: z.array(providerViewSchema),
+  runtimePlugins: z.array(runtimePluginViewSchema).default([]),
 });
 export type PluginManagerSnapshot = z.infer<typeof pluginManagerSnapshotSchema>;

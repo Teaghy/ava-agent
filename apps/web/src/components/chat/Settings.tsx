@@ -97,9 +97,22 @@ export function Settings({
           }
         />
         <p className="settings-note">
-          Token 只保留在当前页面内存中。更换身份会清空当前页面的对话视图。
+          Token 保存在当前标签页会话中，刷新后自动恢复。更换身份会清空当前对话视图。
         </p>
         <div className="dialog-footer">
+          {token && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setDraft('');
+                onApply('');
+                onClose();
+              }}
+            >
+              清除 Token
+            </button>
+          )}
           <button type="button" className="secondary-button" onClick={onClose}>
             取消
           </button>

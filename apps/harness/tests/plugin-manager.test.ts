@@ -6,6 +6,7 @@ import { createHarness } from '../src/bootstrap/plugins.js';
 import type { Context } from '../src/bootstrap/context.js';
 import { loadConfig } from '../src/config/index.js';
 import { principal } from './helpers.js';
+import { storageMemoryPlugin } from '../src/plugins/storage-memory/index.js';
 
 const roots: string[] = [];
 const harnesses: Awaited<ReturnType<typeof createHarness>>[] = [];
@@ -77,6 +78,112 @@ async function answer(h: Awaited<ReturnType<typeof createHarness>>) {
 }
 
 describe('Local plugin administration', () => {
+  it('reports real built-in modules, nested Ops modules and service dependencies without exposing config', async () => {
+    const { h, request } = await setup();
+    const snapshot = await (await request()).json();
+    const names = snapshot.runtimePlugins.map((row: { name: string }) => row.name);
+    expect(names).toContain('model-compatibility');
+    expect(names).toContain('answer-model');
+    expect(names).toContain('storage-memory');
+    expect(names).toContain('ops-runs-api');
+    expect(names).not.toContain('storage-postgres');
+    expect(names).not.toContain('cache-redis');
+    expect(
+      snapshot.runtimePlugins.find((row: { name: string }) => row.name === 'model-compatibility'),
+    ).toMatchObject({
+      source: 'builtin',
+      status: 'active',
+      services: ['modelCompatibility'],
+      dependencies: [],
+    });
+    expect(
+      snapshot.runtimePlugins.find((row: { name: string }) => row.name === 'ops-runs-api').parentId,
+    ).toBeDefined();
+    expect(
+      snapshot.runtimePlugins.find((row: { name: string }) => row.name === 'ops-runs-api')
+        .dependencies,
+    ).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'storage', required: true })]),
+    );
+    expect(
+      snapshot.providers.every((provider: { status: string }) => provider.status === 'active'),
+    ).toBe(true);
+    expect(JSON.stringify(snapshot.runtimePlugins)).not.toMatch(
+      /config|apiKey|platform-token|OPS_API_KEYS/,
+    );
+    await h.ctx.plugin({ name: 'only-at-runtime', apply() {} });
+    expect(
+      h.pluginManager.snapshot().runtimePlugins.some((plugin) => plugin.name === 'only-at-runtime'),
+    ).toBe(true);
+  });
+  it('tracks application providers and extensions separately from built-in and managed plugin modules', async () => {
+    const h = await createHarness(loadConfig({ NODE_ENV: 'test', SEED_KNOWLEDGE: 'false' }), {
+      quiet: true,
+      providers: {
+        storage: storageMemoryPlugin,
+        decision: {
+          name: 'app-decision',
+          provide: ['decision'],
+          apply(ctx) {
+            ctx.provide('decision', {
+              async decide() {
+                return { type: 'ask_user', question: 'App' };
+              },
+            });
+          },
+        },
+      },
+      plugins: [
+        {
+          name: 'app-extension',
+          apply(ctx) {
+            ctx.plugin({ name: 'app-child', apply() {} });
+          },
+        },
+      ],
+    });
+    harnesses.push(h);
+    const snapshot = h.pluginManager.snapshot();
+    expect(snapshot.runtimePlugins.find((plugin) => plugin.name === 'storage-memory')?.source).toBe(
+      'application',
+    );
+    for (const name of ['app-decision', 'app-extension', 'app-child'])
+      expect(snapshot.runtimePlugins.find((plugin) => plugin.name === name)?.source).toBe(
+        'application',
+      );
+    expect(snapshot.runtimePlugins.some((plugin) => plugin.name === 'decision-main-model')).toBe(
+      false,
+    );
+    expect(snapshot.providers.find((provider) => provider.slot === 'decision')).toMatchObject({
+      source: 'application',
+      status: 'active',
+      name: 'app-decision',
+    });
+  });
+  it('drains knowledge writes before maintenance and blocks new imports and runs until resumed', async () => {
+    const { h } = await setup();
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const importing = h.pluginManager.knowledgeWrite(() => waiting);
+    const update = vi.fn(async () => {});
+    const maintenance = h.pluginManager.maintenance(update);
+    await vi.waitFor(() => expect(h.pluginManager.changing).toBe(true));
+    expect(update).not.toHaveBeenCalled();
+    await expect(
+      h.ctx.rag.ingest(
+        { id: 'blocked', title: 'Blocked', content: 'Blocked', metadata: {} },
+        principal.tenantId,
+      ),
+    ).rejects.toMatchObject({ code: 'MAINTENANCE_IN_PROGRESS' });
+    release();
+    await importing;
+    await maintenance;
+    expect(update).toHaveBeenCalledOnce();
+    expect(h.pluginManager.changing).toBe(false);
+    expect(await answer(h)).toBeTruthy();
+  });
   it('switches a native response policy, rolls invalid config back and restores the preset policy', async () => {
     const { root, statePath } = await fixture();
     const entry = await moduleFile(
@@ -108,7 +215,7 @@ describe('Local plugin administration', () => {
       type: 'final_answer',
       answer: '通用回答',
     });
-    await expect(answer(h)).rejects.toMatchObject({ code: 'LOW_CONFIDENCE' });
+    await expect(answer(h)).resolves.toContain('服务范围');
     const installed = await request('/install', {
       name: 'Response policy',
       entry,
@@ -135,7 +242,7 @@ describe('Local plugin administration', () => {
     expect((await request('/configure', { id, config: { allow: false } })).status).toBe(400);
     expect(await answer(h)).toBe('通用回答');
     expect((await request('/action', { id, action: 'disable' })).status).toBe(200);
-    await expect(answer(h)).rejects.toMatchObject({ code: 'LOW_CONFIDENCE' });
+    await expect(answer(h)).resolves.toContain('服务范围');
   });
 
   it('is disabled by default and requires a dedicated platform permission before module loading', async () => {
@@ -189,6 +296,9 @@ describe('Local plugin administration', () => {
     expect(installed.status).toBe(201);
     const snapshot = await installed.json();
     expect(JSON.stringify(snapshot)).not.toContain('private-secret');
+    expect(
+      snapshot.runtimePlugins.some((plugin: { name: string }) => plugin.name === 'external-tool'),
+    ).toBe(false);
     expect(snapshot.plugins[0]).toMatchObject({ enabled: true, status: 'active' });
     const id = snapshot.plugins[0].id;
     expect(
