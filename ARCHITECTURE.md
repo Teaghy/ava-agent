@@ -1,5 +1,7 @@
 # Agent 平台分层
 
+当前业务入口、身份隔离与运行关系见 [架构总览与图片](docs/architecture-overview.md)。
+
 本目录落实《Agent架构分层》讨论中的运行边界。目录按已有职责拆分，未实现的能力不创建空 Provider 或伪造业务页面。
 
 ```text
@@ -91,10 +93,10 @@ apps/
 │       ├── lib/protocol.ts                # 仅 UI 消息状态类型
 │       ├── App.tsx
 │       └── main.tsx
-└── admin/                                 # 独立包骨架，尚无管理界面
-    ├── src/pages/README.md                 # knowledge / conversations / agents / tools
-    │                                      # prompts / traces / evaluation
-    └── package.json
+├── admin/                                 # 租户内成员、应用与 Key 管理
+│   └── src/                               # App / ApplicationsPanel
+└── ops/                                   # 独立维护入口，模型、插件与轨迹
+    └── src/pages/
 packages/
 ├── protocol/src/
 │   ├── chat/                              # request / response / events
@@ -105,7 +107,8 @@ packages/
 │   └── index.ts
 ├── sdk/src/                               # client / chat / stream / knowledge / index
 ├── shared/src/                            # errors / utils（已有公共代码）
-└── config/typescript/base.json
+├── config/typescript/base.json
+└── ui/src/                                # 三端共用 Radix 控件与样式
 ```
 
 依赖方向：Web/Admin → SDK → Protocol/Shared；Harness → Protocol/Shared。Core 无 Provider SDK；插件通过 Cordis Context 组合，插件注册与服务实现分开。API 参数、输出和客户端事件均保留 Zod 校验。
@@ -126,4 +129,4 @@ packages/
 
 Working Memory 仍是 AgentState，保存在进程、Redis TTL 和 durable checkpoint 中；没有为了目录命名创建第二套状态机制。Mem0 REST Provider 保持现有行为，embedded Provider 尚未实现。
 
-Admin、共享 UI、上传、真实 Reranker、额外知识库连接器属于后续功能。当前不提供假的管理页面，也不创建无人使用的 result/ids 工具、repository 包装或空实现。参考结构中的 ESLint 目录遵从本项目要求替换为根 oxlint/oxfmt 配置。
+Admin 已实现租户成员与应用凭证管理，三端共用 `packages/ui`；插件 ZIP 上传在 Ops，知识导入已有 API。知识文件上传管理页面、真实 Reranker 和额外知识库连接器属于后续功能。当前默认 Reranker 为 Noop，不创建空实现来代替未实现功能。参考结构中的 ESLint 目录遵从本项目要求替换为根 oxlint/oxfmt 配置。

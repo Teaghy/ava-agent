@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AgentClient, ApiError, type Application, type ApplicationKeyView } from '@ava/sdk';
 import { Copy, Eye, EyeOff, KeyRound, Plus, ShieldCheck } from 'lucide-react';
+import { Select, Checkbox, DateTimePicker, useConfirm } from '@ava/ui';
 
 const dateText = (value: string) => new Date(value).toLocaleString('zh-CN', { hour12: false });
 const errorText = (error: unknown) =>
@@ -28,6 +29,7 @@ export function ApplicationsPanel({
   const [secret, setSecret] = useState('');
   const [revealed, setRevealed] = useState(false);
   const keyRequestVersion = useRef(0);
+  const confirm = useConfirm();
   const application = applications.find((a) => a.applicationId === selected);
 
   useEffect(() => {
@@ -255,13 +257,16 @@ export function ApplicationsPanel({
                 <button
                   className="secondary"
                   disabled={busy}
-                  onClick={() => {
+                  onClick={async () => {
                     if (
-                      !window.confirm(
-                        application.active
-                          ? '停用后，此应用的全部 Key 将立即失效。确认停用？'
-                          : '确认重新启用此应用？已撤销的 Key 不会恢复。',
-                      )
+                      !(await confirm({
+                        title: application.active ? '停用此应用？' : '启用此应用？',
+                        description: application.active
+                          ? '停用后，此应用的全部 Key 将立即失效。'
+                          : '已撤销的 Key 不会恢复。',
+                        confirmLabel: application.active ? '停用应用' : '启用应用',
+                        danger: application.active,
+                      }))
                     )
                       return;
                     void perform(async () => {
@@ -342,27 +347,33 @@ export function ApplicationsPanel({
                     </label>
                     <label>
                       允许的用途
-                      <select name="capability" disabled={busy}>
-                        <option value="chat">对话与检索</option>
-                        <option value="knowledge">仅导入知识</option>
-                        <option value="both">对话与知识导入</option>
-                      </select>
+                      <Select
+                        name="capability"
+                        aria-label="凭证用途"
+                        defaultValue="chat"
+                        disabled={busy}
+                        options={[
+                          { value: 'chat', label: '对话与检索' },
+                          { value: 'knowledge', label: '仅导入知识' },
+                          { value: 'both', label: '对话与知识导入' },
+                        ]}
+                      />
                     </label>
                     <label>
                       到期时间（可选）
-                      <input name="expiresAt" type="datetime-local" disabled={busy} />
+                      <DateTimePicker name="expiresAt" aria-label="凭证到期时间" disabled={busy} />
                       <span>留空则长期有效，按当前设备时区设置。</span>
                     </label>
                   </div>
                   <details>
-                    <summary>高级工具权限</summary>
+                    <summary className="ui-disclosure">高级工具权限</summary>
                     <p>默认仅 READ。只在需要执行对应业务工具时额外授权。</p>
                     <label className="status-control">
-                      <input type="checkbox" name="write" disabled={busy} />
+                      <Checkbox name="write" disabled={busy} />
                       允许 WRITE 工具
                     </label>
                     <label className="status-control">
-                      <input type="checkbox" name="critical" disabled={busy} />
+                      <Checkbox name="critical" disabled={busy} />
                       允许 CRITICAL 工具
                     </label>
                   </details>
@@ -457,11 +468,14 @@ export function ApplicationsPanel({
                         <button
                           className="secondary"
                           disabled={busy || !!key.revokedAt}
-                          onClick={() => {
+                          onClick={async () => {
                             if (
-                              !window.confirm(
-                                `确认撤销“${key.label}”？该 Key 将立即停止接受新请求，无法恢复。`,
-                              )
+                              !(await confirm({
+                                title: '撤销此 Key？',
+                                description: `确认撤销“${key.label}”？该 Key 将立即停止接受新请求，无法恢复。`,
+                                confirmLabel: '撤销 Key',
+                                danger: true,
+                              }))
                             )
                               return;
                             void perform(async () => {

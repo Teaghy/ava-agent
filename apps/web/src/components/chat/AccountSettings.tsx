@@ -49,7 +49,7 @@ export function AccountSettings({
             </button>
           </div>
           <details>
-            <summary>修改密码</summary>
+            <summary className="ui-disclosure">修改密码</summary>
             <form
               onSubmit={(e) => {
                 e.preventDefault();

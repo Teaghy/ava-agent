@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { Modal } from '@ava/ui';
+import { useEffect, useState } from 'react';
 import { X, KeyRound, Database, ShieldCheck } from 'lucide-react';
 import type { ClientConfig } from '../../lib/protocol';
 import type { Identity } from '@ava/sdk';
@@ -20,21 +21,21 @@ export function Settings({
   identity?: Identity;
   onIdentityChange: (identity?: Identity) => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const [draft, setDraft] = useState(token);
   useEffect(() => {
     if (open) {
       setDraft(token);
-      dialog.current?.showModal();
-    } else dialog.current?.close();
+    }
   }, [open, token]);
   return (
-    <dialog
-      ref={dialog}
+    <Modal
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
       className="settings-dialog"
-      onClose={onClose}
-      onCancel={onClose}
-      aria-labelledby="settings-title"
+      title="连接与服务"
+      description="管理工作空间登录与服务连接。"
     >
       <div className="dialog-heading">
         <div>
@@ -85,7 +86,7 @@ export function Settings({
         <AccountSettings identity={identity} onChange={onIdentityChange} />
       )}
       <details open={!config?.localAuthEnabled || !!token}>
-        <summary>使用 API Token 连接</summary>
+        <summary className="ui-disclosure">使用 API Token 连接</summary>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -133,6 +134,6 @@ export function Settings({
           </div>
         </form>
       </details>
-    </dialog>
+    </Modal>
   );
 }

@@ -990,10 +990,6 @@ button:disabled {
   box-shadow: 0 24px 80px #11182720;
   margin: auto;
 }
-.settings-dialog::backdrop {
-  background: #11182748;
-  backdrop-filter: blur(3px);
-}
 .dialog-heading {
   display: flex;
   align-items: center;

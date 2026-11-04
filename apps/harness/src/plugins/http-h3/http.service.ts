@@ -1,4 +1,5 @@
 import { createServer, type Server } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import {
@@ -86,17 +87,24 @@ export class H3HttpService implements HttpService {
           if (!handler && (event.method === 'GET' || event.method === 'HEAD')) {
             const asset = await this.asset(path);
             if (asset) {
+              const nonce = asset.type.startsWith('text/html')
+                ? randomBytes(18).toString('base64')
+                : undefined;
               setHeaders(event, {
                 'cache-control': 'no-cache',
                 'x-content-type-options': 'nosniff',
                 ...(asset.type.startsWith('text/html')
                   ? {
-                      'content-security-policy':
-                        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+                      'content-security-policy': `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`,
                     }
                   : {}),
               });
-              return send(event, event.method === 'HEAD' ? undefined : asset.content, asset.type);
+              const content = nonce
+                ? asset.content
+                    .toString('utf8')
+                    .replace('<head>', `<head><meta name="csp-nonce" content="${nonce}">`)
+                : asset.content;
+              return send(event, event.method === 'HEAD' ? undefined : content, asset.type);
             }
           }
           if (!handler) throw new AppError('NOT_FOUND', '接口不存在。', 404);

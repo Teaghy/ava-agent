@@ -1,3 +1,4 @@
+import { Select, Checkbox } from '@ava/ui';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AgentClient, ApiError } from '@ava/sdk';
 import { MAX_PLUGIN_UPLOAD_BYTES } from '@ava/protocol';
@@ -690,7 +691,9 @@ export function PluginsPage() {
                   </fieldset>
                 </form>
                 <details>
-                  <summary className="plugins-field">开发者：登记服务器本地路径</summary>
+                  <summary className="plugins-field ui-disclosure">
+                    开发者：登记服务器本地路径
+                  </summary>
                   <form onSubmit={install}>
                     <fieldset disabled={!canManage}>
                       <div className="plugins-field">
@@ -720,31 +723,25 @@ export function PluginsPage() {
                       </div>
                       <div className="plugins-field">
                         <label htmlFor="plugin-kind">插件类型</label>
-                        <select
+                        <Select
                           id="plugin-kind"
                           value={kind}
-                          onChange={(event) =>
-                            setKind(event.target.value as PluginInstallRequest['kind'])
-                          }
-                        >
-                          <option value="extension">扩展插件</option>
-                          <option value="provider">算法 Provider</option>
-                        </select>
+                          onValueChange={(value) => setKind(value as PluginInstallRequest['kind'])}
+                          options={[
+                            { value: 'extension', label: '扩展插件' },
+                            { value: 'provider', label: '算法 Provider' },
+                          ]}
+                        />
                       </div>
                       {kind === 'provider' && (
                         <div className="plugins-field">
                           <label htmlFor="plugin-slot">替换能力槽位</label>
-                          <select
+                          <Select
                             id="plugin-slot"
                             value={slot}
-                            onChange={(event) => setSlot(event.target.value as PluginSlot)}
-                          >
-                            {slots.map((item) => (
-                              <option key={item.value} value={item.value}>
-                                {item.label}
-                              </option>
-                            ))}
-                          </select>
+                            onValueChange={(value) => setSlot(value as PluginSlot)}
+                            options={slots.map(({ value, label }) => ({ value, label }))}
+                          />
                           <p>启用后由服务器切换到此 Provider，停用后恢复原提供方。</p>
                         </div>
                       )}
@@ -764,11 +761,7 @@ export function PluginsPage() {
                         <p id="plugin-config-help">配置交给插件使用，登记后不会在列表中显示。</p>
                       </div>
                       <label className="plugins-toggle">
-                        <input
-                          type="checkbox"
-                          checked={enabled}
-                          onChange={(event) => setEnabled(event.target.checked)}
-                        />
+                        <Checkbox checked={enabled} onCheckedChange={setEnabled} />
                         <span>
                           <strong>登记后立即启用</strong>
                           <small>关闭后仅保存登记，稍后可手动启用。</small>

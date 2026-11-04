@@ -1,5 +1,7 @@
 # Ava Agent Harness
 
+当前三端、插件底座、模型与数据隔离关系见 [架构总览与图片](docs/architecture-overview.md)。
+
 智能客服落地的优先级、待办和验收条件见 [智能客服落地待办](docs/customer-service-todo.md)。
 
 使用真实模型测试澄风客服资料，见 [OpenRouter 示例](examples/openrouter/README.md)。
@@ -55,13 +57,14 @@ apps/
     src/components/           # chat、message、citation、Brand
     src/services/             # SDK → 界面适配
     src/lib/                  # 仅 UI 类型
-  admin/                      # @ava/admin：可选业务管理示例，登录与成员权限
+  admin/                      # @ava/admin：业务管理，成员权限与应用凭证
   ops/                        # @ava/ops：维护人员界面，由 Harness 内置插件托管
 packages/
   protocol/                   # @ava/protocol：chat、citation、knowledge、error、config
   sdk/                        # @ava/sdk：AgentClient、chat、stream、knowledge
   shared/                     # @ava/shared：公共错误与安全 URL 工具
   config/                     # @ava/config：共用 TypeScript 配置
+  ui/                         # @ava/ui：三端共用 Radix 控件与样式
 pnpm-workspace.yaml
 ava.config.ts                 # 固定应用装配；dev/start 自动读取对应源/构建配置
 extensions/                   # 可选的应用内插件；独立项目不需要放在这里
@@ -76,7 +79,7 @@ tsconfig.base.json            # 引用 packages/config 中的配置
 
 开发者接入见 [插件开发文档](docs/plugin-development.md)：通过公开的 `@ava/harness` / `@ava/harness/plugin` 入口装配，不需要修改 bootstrap。`providers` 明确替换实现，`plugins` 追加知识源、工具和行业校验。`pnpm example:retail` 运行独立零售示例：规则决策、订单查询、自定义知识源和答案审核，无需外部基础设施。默认设备资料仅为 mock 演示。
 
-各包独立声明依赖，通过 `workspace:*` 连接。`pnpm build` 按依赖图构建；`pnpm test` 和 `pnpm typecheck` 会先构建共享包。Admin 只预留结构，不参与 dev/build。`packages/ui` 暂未建立，待 Web/Admin 出现实际共用组件后再提取。工具仍使用 Vitest、oxlint、oxfmt，不引入 ESLint 或额外任务调度框架。
+各包独立声明依赖，通过 `workspace:*` 连接。`pnpm build` 按依赖图构建；`pnpm test` 和 `pnpm typecheck` 会先构建共享包。Web、Admin、Ops 均参与构建，共用 `packages/ui` 的下拉框、复选框、日期时间与弹窗组件。工具仍使用 Vitest、oxlint、oxfmt，不引入 ESLint 或额外任务调度框架。
 
 ```bash
 pnpm --filter @ava/harness test
@@ -306,7 +309,7 @@ curl http://localhost:3001/api/v1/ops/runs/detail \
 
 身份/输入错误在打开流之前返回 HTTP 4xx；流中的执行错误通过 `error` 事件返回。客户端断连触发 AbortSignal，Provider 和循环响应取消。SSE 当前不支持 Last-Event-ID 续传；持久轨迹另由 Event Store 查询。
 
-为避免无效或越权内容提前外泄，**完整答案通过 Guard 后才切分为 answer.delta**。这些增量是经过校验的答案传输，不是模型生成 token 的实时透传。独立 ModelService.stream 已提供真实模型流接口。
+live 模式默认启用 `ANSWER_STREAMING`，决策完成后由 AnswerService 单独生成正文。回答策略允许流式、没有附加审核且本次未调用非检索工具时，Guard 先校验证据与引用，正文随后通过 `answer.delta` 实时发送。其他路径先生成完整答案并通过 Guard，再以 SSE 发送。详见 [回答生成](apps/harness/src/plugins/answer-model/README.md)。
 
 ## How to Add a Tool
 

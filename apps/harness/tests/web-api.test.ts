@@ -12,7 +12,10 @@ describe('Web UI hosting and conversation APIs', () => {
   it('serves only public UI files and removes static routes on disposal', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ava-web-test-'));
     const http = new H3HttpService();
-    await writeFile(join(root, 'index.html'), '<!doctype html><title>Ava</title>');
+    await writeFile(
+      join(root, 'index.html'),
+      '<!doctype html><html><head><title>Ava</title></head><body></body></html>',
+    );
     await writeFile(join(root, '.env'), 'secret');
     try {
       const dispose = http.static('/', root);
@@ -21,6 +24,12 @@ describe('Web UI hosting and conversation APIs', () => {
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toContain('text/html');
       expect(response.headers.get('content-security-policy')).toContain("default-src 'self'");
+      const nonce = (await response.text()).match(/<meta name="csp-nonce" content="([^"]+)"/u)?.[1];
+      expect(nonce).toBeTruthy();
+      const policy = response.headers.get('content-security-policy');
+      expect(policy).toContain(`style-src 'self' 'nonce-${nonce}'`);
+      expect(policy).not.toContain('unsafe-inline');
+      expect((await fetch(url)).headers.get('content-security-policy')).not.toBe(policy);
       expect((await fetch(`${url}/.env`)).status).toBe(404);
       expect((await fetch(`${url}/package.json`)).status).toBe(404);
       dispose();

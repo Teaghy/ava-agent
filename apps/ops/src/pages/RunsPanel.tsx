@@ -1,3 +1,4 @@
+import { Select, Checkbox, DateTimePicker } from '@ava/ui';
 import { useEffect, useState, type FormEvent } from 'react';
 import { AgentClient } from '@ava/sdk';
 import type { RunDetail, RunEvent, RunListRequest, RunSummary } from '@ava/protocol';
@@ -135,6 +136,10 @@ export function RunsPanel({ token }: { token: string }) {
   const search = (event: FormEvent) => {
     event.preventDefault();
     if (!tenant) return;
+    if (since && until && until < since) {
+      setError('结束时间不能早于开始时间。');
+      return;
+    }
     setSelected(undefined);
     setDetail(undefined);
     setQuery({
@@ -178,22 +183,24 @@ export function RunsPanel({ token }: { token: string }) {
       <form className="plugins-panel runs-filters" onSubmit={search}>
         <label>
           租户
-          <select value={tenant} onChange={(e) => setTenant(e.target.value)}>
-            {tenants.map((id) => (
-              <option key={id}>{id}</option>
-            ))}
-          </select>
+          <Select
+            aria-label="租户"
+            value={tenant}
+            onValueChange={setTenant}
+            options={tenants.map((id) => ({ value: id, label: id }))}
+          />
         </label>
         <label>
           运行状态
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">全部状态</option>
-            {Object.entries(statuses).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+          <Select
+            aria-label="运行状态"
+            value={status || 'all'}
+            onValueChange={(value) => setStatus(value === 'all' ? '' : value)}
+            options={[
+              { value: 'all', label: '全部状态' },
+              ...Object.entries(statuses).map(([value, label]) => ({ value, label })),
+            ]}
+          />
         </label>
         <label>
           运行 ID
@@ -213,15 +220,15 @@ export function RunsPanel({ token }: { token: string }) {
         </label>
         <label>
           开始时间
-          <input type="datetime-local" value={since} onChange={(e) => setSince(e.target.value)} />
+          <DateTimePicker aria-label="开始时间" value={since} onValueChange={setSince} />
         </label>
         <label>
           结束时间
-          <input
-            type="datetime-local"
+          <DateTimePicker
+            aria-label="结束时间"
             value={until}
             min={since || undefined}
-            onChange={(e) => setUntil(e.target.value)}
+            onValueChange={setUntil}
           />
         </label>
         <div className="runs-filter-actions">
@@ -379,13 +386,12 @@ export function RunsPanel({ token }: { token: string }) {
                     </button>
                   </div>
                   <label>
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={checkpoints}
-                      onChange={(e) => {
-                        setCheckpoints(e.target.checked);
+                      onCheckedChange={(checked) => {
+                        setCheckpoints(checked);
                         if (
-                          !e.target.checked &&
+                          !checked &&
                           detail.events.some(
                             (event) => event.id === node && event.type === 'checkpoint',
                           )

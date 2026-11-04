@@ -1,3 +1,4 @@
+import { Modal } from '@ava/ui';
 import { CitationPanel } from '../components/citation/CitationPanel';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -59,7 +60,6 @@ export function ChatPage() {
   const [sources, setSources] = useState<Citation[] | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
   const [deletingId, setDeletingId] = useState('');
-  const deleteDialog = useRef<HTMLDialogElement>(null);
   const active = useRef<AbortController | null>(null);
   const historyRequest = useRef<AbortController | null>(null);
   const identityVersion = useRef(0);
@@ -73,10 +73,6 @@ export function ChatPage() {
   useEffect(() => {
     document.title = `Ava · ${copy.label}`;
   }, [copy.label]);
-  useEffect(() => {
-    if (deleteTarget) deleteDialog.current?.showModal();
-    else deleteDialog.current?.close();
-  }, [deleteTarget]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -641,15 +637,15 @@ export function ChatPage() {
           {sources && <CitationPanel sources={sources} onClose={() => setSources(null)} />}
         </div>
       </main>
-      <dialog
-        ref={deleteDialog}
-        className="settings-dialog conversation-delete-dialog"
-        aria-labelledby="delete-conversation-title"
-        onClose={() => setDeleteTarget(null)}
-        onCancel={(event) => {
-          if (deletingId) event.preventDefault();
-          else setDeleteTarget(null);
+      <Modal
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
         }}
+        busy={!!deletingId}
+        className="settings-dialog conversation-delete-dialog"
+        title="删除这段对话？"
+        description="聊天消息和摘要将被清除，删除后无法恢复。"
       >
         <div className="dialog-heading">
           <h2 id="delete-conversation-title">删除这段对话？</h2>
@@ -676,7 +672,7 @@ export function ChatPage() {
             {deletingId ? '正在删除…' : '确认删除'}
           </button>
         </div>
-      </dialog>
+      </Modal>
       <Settings
         open={settingsOpen}
         config={config}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AgentClient, ApiError, type Identity, type Member, type MemberRole } from '@ava/sdk';
 import { ArrowUpRight, LogOut, Plus, ShieldCheck, Users, KeyRound } from 'lucide-react';
 import { ApplicationsPanel } from './ApplicationsPanel';
+import { Select, Checkbox, useConfirm } from '@ava/ui';
 
 const roles: Record<MemberRole, string> = {
   'tenant-admin': '租户管理员',
@@ -24,6 +25,7 @@ function MemberRow({
   const [role, setRole] = useState(member.role);
   const [active, setActive] = useState(member.active);
   const [password, setPassword] = useState('');
+  const confirm = useConfirm();
   return (
     <article className="member-row">
       <div className="member-name">
@@ -38,26 +40,16 @@ function MemberRow({
       </div>
       <label>
         <span className="field-caption">角色</span>
-        <select
+        <Select
           aria-label={`${member.userId} 的角色`}
           value={role}
           disabled={busy || self}
-          onChange={(e) => setRole(e.target.value as MemberRole)}
-        >
-          {Object.entries(roles).map(([key, label]) => (
-            <option key={key} value={key}>
-              {label}
-            </option>
-          ))}
-        </select>
+          onValueChange={(value) => setRole(value as MemberRole)}
+          options={Object.entries(roles).map(([value, label]) => ({ value, label }))}
+        />
       </label>
       <label className="status-control">
-        <input
-          type="checkbox"
-          checked={active}
-          disabled={busy || self}
-          onChange={(e) => setActive(e.target.checked)}
-        />
+        <Checkbox checked={active} disabled={busy || self} onCheckedChange={setActive} />
         {active ? '已启用' : '已停用'}
       </label>
       <label>
@@ -81,8 +73,14 @@ function MemberRow({
           (role === member.role && active === member.active && !password) ||
           (!!password && password.length < 12)
         }
-        onClick={() => {
-          if (window.confirm(`确认修改 ${member.displayName}？该账号已有登录会话将失效。`))
+        onClick={async () => {
+          if (
+            await confirm({
+              title: '修改成员信息？',
+              description: `确认修改 ${member.displayName}？该账号已有登录会话将失效。`,
+              confirmLabel: '确认修改',
+            })
+          )
             void onSave(member, role, active, password).then((ok) => {
               if (ok) setPassword('');
             });
@@ -337,7 +335,7 @@ export function App() {
               </button>
             </form>
             <details>
-              <summary>使用现有管理员 Token 迁移</summary>
+              <summary className="ui-disclosure">使用现有管理员 Token 迁移</summary>
               <p>仅用于初始化账号。凭证只在当前页面内存中使用，不会保存。</p>
               <form
                 onSubmit={(e) => {
@@ -432,13 +430,13 @@ export function App() {
                   </label>
                   <label>
                     角色
-                    <select name="role" defaultValue="agent" disabled={busy}>
-                      {Object.entries(roles).map(([key, label]) => (
-                        <option key={key} value={key}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
+                    <Select
+                      name="role"
+                      aria-label="成员角色"
+                      defaultValue="agent"
+                      disabled={busy}
+                      options={Object.entries(roles).map(([value, label]) => ({ value, label }))}
+                    />
                   </label>
                   <label>
                     初始密码

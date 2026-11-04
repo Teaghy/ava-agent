@@ -1,3 +1,4 @@
+import { Select, Checkbox } from '@ava/ui';
 import { useEffect, useState, type FormEvent } from 'react';
 import { AgentClient } from '@ava/sdk';
 import type { ModelSettingsView } from '@ava/protocol';
@@ -241,11 +242,10 @@ export function ModelsPanel({ token }: { token: string }) {
               </label>
               {view.llm.keyConfigured && (
                 <label className="models-checkbox">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={clearLlm}
-                    onChange={(e) => {
-                      setClearLlm(e.target.checked);
+                    onCheckedChange={(checked) => {
+                      setClearLlm(checked);
                       setLlmKey('');
                     }}
                   />
@@ -253,42 +253,48 @@ export function ModelsPanel({ token }: { token: string }) {
                 </label>
               )}
               <details className="models-compatibility">
-                <summary>高级兼容设置</summary>
+                <summary className="ui-disclosure">高级兼容设置</summary>
                 <p>
                   自动按服务地址和模型匹配已知规则；更换地址或模型会恢复为自动。保存前验证多轮决策和流式正文。
                 </p>
                 <label>
                   消息格式
-                  <select
+                  <Select
+                    aria-label="消息格式"
                     value={llm.compatibility.messageFormat}
-                    onChange={(e) => setCompatibility('messageFormat', e.target.value)}
-                  >
-                    <option value="auto">自动（匹配已知规则）</option>
-                    <option value="preserve">保留消息结构</option>
-                    <option value="single-system-first">单条 system 置顶</option>
-                  </select>
+                    onValueChange={(value) => setCompatibility('messageFormat', value)}
+                    options={[
+                      { value: 'auto', label: '自动（匹配已知规则）' },
+                      { value: 'preserve', label: '保留消息结构' },
+                      { value: 'single-system-first', label: '单条 system 置顶' },
+                    ]}
+                  />
                 </label>
                 <label>
                   JSON 输出方式
-                  <select
+                  <Select
+                    aria-label="JSON 输出方式"
                     value={llm.compatibility.jsonOutput}
-                    onChange={(e) => setCompatibility('jsonOutput', e.target.value)}
-                  >
-                    <option value="auto">自动（匹配已知规则）</option>
-                    <option value="json-object">JSON 对象参数</option>
-                    <option value="prompt">仅提示词约束（仍严格校验结果）</option>
-                  </select>
+                    onValueChange={(value) => setCompatibility('jsonOutput', value)}
+                    options={[
+                      { value: 'auto', label: '自动（匹配已知规则）' },
+                      { value: 'json-object', label: 'JSON 对象参数' },
+                      { value: 'prompt', label: '仅提示词约束（仍严格校验结果）' },
+                    ]}
+                  />
                 </label>
                 <label>
                   流式用量参数
-                  <select
+                  <Select
+                    aria-label="流式用量参数"
                     value={llm.compatibility.streamUsage}
-                    onChange={(e) => setCompatibility('streamUsage', e.target.value)}
-                  >
-                    <option value="auto">自动（匹配已知规则）</option>
-                    <option value="enabled">发送 include_usage</option>
-                    <option value="disabled">不发送流式用量参数</option>
-                  </select>
+                    onValueChange={(value) => setCompatibility('streamUsage', value)}
+                    options={[
+                      { value: 'auto', label: '自动（匹配已知规则）' },
+                      { value: 'enabled', label: '发送 include_usage' },
+                      { value: 'disabled', label: '不发送流式用量参数' },
+                    ]}
+                  />
                 </label>
                 {view.llm.effectiveCompatibility && (
                   <p className="models-effective">
@@ -381,11 +387,10 @@ export function ModelsPanel({ token }: { token: string }) {
               </label>
               {view.embedding.keyConfigured && (
                 <label className="models-checkbox">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={clearEmbedding}
-                    onChange={(e) => {
-                      setClearEmbedding(e.target.checked);
+                    onCheckedChange={(checked) => {
+                      setClearEmbedding(checked);
                       setEmbeddingKey('');
                     }}
                   />
