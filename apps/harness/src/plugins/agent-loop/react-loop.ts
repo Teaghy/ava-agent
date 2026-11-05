@@ -4,10 +4,10 @@ import type { AgentService } from '../../core/agent/agent.service.js';
 import type { AgentState, AgentInput } from '../../core/agent/agent.types.js';
 import type { StreamEvent } from '../../core/http/http.types.js';
 import type { AgentResult } from '@ava/protocol';
-import type { MemoryItem } from '../../core/memory/memory.types.js';
 import { decisionSchema } from '../../core/decision/decision.schema.js';
 import { AppError, publicError, checkAbort } from '../../core/errors.js';
 import { ToolAuditError } from '../../core/tools/tool-audit-error.js';
+import { canUseTool } from '../../core/tools/tool.types.js';
 export interface AgentConfig {
   maxSteps: number;
   maxToolCalls: number;
@@ -82,6 +82,14 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
       status: 'running',
     };
     const tenant = input.principal.tenantId;
+    // Keep personal tool results available to the model for this run only.
+    const memoryResults = new Map<number, unknown>();
+    const modelObservations = () =>
+      state.observations.map((observation, index) =>
+        memoryResults.has(index)
+          ? { ...observation, result: memoryResults.get(index) }
+          : observation,
+      );
     const lockKey = `conversation-lock:${input.conversationId}`;
     const signal = AbortSignal.any([
       lifetime.signal,
@@ -115,24 +123,6 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
           });
           const recent = await ctx.sessions.recent(state.conversationId);
           const summary = await ctx.sessions.summary(state.conversationId);
-          let memories: MemoryItem[] = [];
-          // An application key represents many people; only conversation context is shared here.
-          if (ctx.memory && !input.principal.applicationId) {
-            try {
-              memories = await ctx.memory.recall(input.message, {
-                ...input.principal,
-                limit: 5,
-                signal,
-              });
-              await append('memory_read', { ids: memories.map((m) => m.id) });
-            } catch {
-              checkAbort(signal);
-              ctx.telemetry.log(
-                { run_id: state.runId, event: 'memory.unavailable' },
-                'optional memory unavailable',
-              );
-            }
-          }
           let ragSearches = 0;
           for (state.step = 1; state.step <= c.maxSteps; state.step++) {
             checkAbort(signal);
@@ -153,7 +143,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
                       entities: state.entities,
                       availableTools: ctx.tools
                         .list()
-                        .filter((tool) => input.principal.permissions.includes(tool.permission)),
+                        .filter((tool) => canUseTool(tool, input.principal)),
                       availableKnowledgeSources: ctx.knowledge.list(),
                     }),
                     {
@@ -162,8 +152,8 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
                         conversationId: state.conversationId,
                         step: state.step,
                         recentMessages: recent.slice(0, -1),
-                        observations: state.observations,
-                        memory: memories,
+                        observations: modelObservations(),
+                        memory: [],
                         summary,
                         retrievedDocuments: state.retrievedDocuments,
                       }),
@@ -181,7 +171,13 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
               },
               'agent decision',
             );
-            await append('agent_decision', decision);
+            const kind =
+              decision.type === 'tool_call' ? ctx.tools.get(decision.tool)?.kind : undefined;
+            const recordedDecision =
+              kind === 'memory' && decision.type === 'tool_call'
+                ? { ...decision, arguments: {} }
+                : decision;
+            await append('agent_decision', recordedDecision);
             await append('execution_span', {
               phase,
               step: state.step,
@@ -249,7 +245,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
                           citation.chunkId === doc.id && citation.documentId === doc.documentId,
                       ),
                     ),
-                    observations: state.observations.filter((observation) =>
+                    observations: modelObservations().filter((observation) =>
                       state.toolCalls.some(
                         (call) =>
                           call.tool === observation.tool &&
@@ -260,7 +256,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
                   },
                   recent: recent.slice(0, -1),
                   summary,
-                  memories,
+                  memories: [],
                   signal,
                   runId: state.runId,
                   conversationId: state.conversationId,
@@ -325,13 +321,12 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             }
             if (state.toolCalls.length >= c.maxToolCalls)
               throw new AppError('TOOL_LIMIT', '工具调用次数已达上限。', 422);
-            const kind = ctx.tools.get(decision.tool)?.kind;
             const isRag = kind === 'retrieval';
             if (isRag && ++ragSearches > c.maxRagSearches)
               throw new AppError('RAG_LIMIT', '知识检索次数已达上限。', 422);
             state.status = 'waiting_tool';
             await ctx.sessions.checkpoint(state, tenant);
-            await append('tool_call', decision);
+            await append('tool_call', recordedDecision);
             if (isRag) await append('rag_search', decision.arguments);
             await emit({ type: 'tool.started', data: { tool: decision.tool } });
             let result: unknown;
@@ -342,6 +337,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             try {
               result = await ctx.tools.execute(decision.tool, decision.arguments, {
                 principal: input.principal,
+                message: input.message,
                 state,
                 signal,
                 emit,
@@ -360,9 +356,13 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             state.toolCalls.push({
               tool: decision.tool,
               kind,
-              arguments: decision.arguments,
+              arguments: kind === 'memory' ? {} : decision.arguments,
               status,
             });
+            if (kind === 'memory' && status === 'completed') {
+              memoryResults.set(state.observations.length, result);
+              result = { private: true };
+            }
             state.observations.push({ tool: decision.tool, result });
             if (auditFailure) throw auditFailure;
             state.status = 'running';

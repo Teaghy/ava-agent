@@ -12,7 +12,6 @@ export const agentLoopPlugin = {
     eventStore: { required: true },
     cache: { required: true },
     telemetry: { required: true },
-    memory: { required: false },
     guard: { required: true },
   },
   apply(ctx: Context, c: AgentConfig) {
@@ -27,7 +26,6 @@ export const agentLoopPlugin = {
         telemetry: ctx.telemetry,
         guard: ctx.guard,
         getAnswer: () => ctx.get('answer'),
-        memory: ctx.memory,
       },
       c,
     );

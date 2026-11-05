@@ -6,6 +6,7 @@ export const configSchema = z.object({
   preset: applicationPresetSchema.default('customer-service'),
   authRequired: z.boolean(),
   localAuthEnabled: z.boolean().default(false),
+  memoryToolsEnabled: z.boolean().optional(),
   memoryProvider: z.enum(['storage', 'mem0-oss-rest', 'custom']),
   persistence: z.enum(['memory', 'postgres', 'custom']),
   maxMessageLength: z.number().int().positive(),

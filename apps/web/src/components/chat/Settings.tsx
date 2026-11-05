@@ -52,7 +52,7 @@ export function Settings({
           <strong>长期记忆</strong>
           <p>
             {config?.memoryProvider === 'mem0-oss-rest'
-              ? '已配置 Mem0 OSS 服务；运行时按需召回。'
+              ? '已配置 Mem0 OSS 服务。'
               : config?.memoryProvider === 'custom'
                 ? '当前使用自定义长期记忆插件。'
                 : '当前使用内置存储，尚未启用 Mem0 OSS。'}
@@ -67,7 +67,9 @@ export function Settings({
         </span>
       </div>
       <p className="settings-note">
-        长期记忆与聊天记录分开管理。当前不会自动把对话内容写入长期记忆。
+        {config?.memoryToolsEnabled
+          ? '个人记忆支持按需检索。发送「请记住：内容」保存，发送「请忘记：记忆 ID」遗忘。'
+          : '长期记忆与聊天记录分开管理。当前服务未启用个人记忆工具。'}
       </p>
       <div className="service-row">
         <ShieldCheck size={18} />

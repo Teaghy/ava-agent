@@ -53,7 +53,11 @@ describe('Web UI hosting and conversation APIs', () => {
     harnesses.push(h);
     const response = await fetch(`http://127.0.0.1:${await h.start()}/api/v1/client-config`);
     const body = await response.json();
-    expect(body).toMatchObject({ memoryProvider: 'mem0-oss-rest', authRequired: true });
+    expect(body).toMatchObject({
+      memoryProvider: 'mem0-oss-rest',
+      memoryToolsEnabled: false,
+      authRequired: true,
+    });
     expect(JSON.stringify(body)).not.toContain('private-');
   });
   it('persists citations in history and isolates lists by principal', async () => {

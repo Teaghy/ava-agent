@@ -6,7 +6,7 @@
 
 - 提供 `ctx.agent`（[AgentService](../../core/agent/agent.service.ts)）。
 - 必需：`decision`、`knowledge`、`tools`、`sessions`、`eventStore`、`cache`、`telemetry`、`guard`。
-- 可选：`memory`；默认装配中启用。
+- 可选个人记忆由 [memory-tools](../memory/README.md) 接入，Agent 通过工具注册表按需调用。
 
 ## 配置
 

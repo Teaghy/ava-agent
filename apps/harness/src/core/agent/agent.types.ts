@@ -1,5 +1,6 @@
 import type { Principal } from '../common.types.js';
 import type { RetrievedDocument } from '../rag/retrieval.types.js';
+import type { ToolKind } from '../tools/tool.types.js';
 export interface AgentObservation {
   tool: string;
   result: unknown;
@@ -7,7 +8,7 @@ export interface AgentObservation {
 
 export interface ToolCallRecord {
   tool: string;
-  kind?: 'retrieval';
+  kind?: ToolKind;
   arguments: Record<string, unknown>;
   status: 'completed' | 'failed';
 }

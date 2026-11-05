@@ -1,6 +1,8 @@
 import type { Context } from 'cordis';
 import { randomUUID } from 'node:crypto';
 import type { MemoryService } from '../../core/memory/memory.service.js';
+
+const segmenter = new Intl.Segmenter('zh', { granularity: 'word' });
 export const memoryPlugin = {
   name: 'memory-storage',
   provide: ['memory'],
@@ -13,15 +15,25 @@ export const memoryPlugin = {
         return item;
       },
       async recall(query, options) {
+        const terms = [
+          ...new Set(
+            [...segmenter.segment(query.toLowerCase())]
+              .filter((part) => part.isWordLike && !/^\p{Script=Han}$/u.test(part.segment))
+              .map((part) => part.segment),
+          ),
+        ];
+        if (!terms.length) return [];
         const rows = await ctx.storage.recall(options);
-        const terms = query.toLowerCase().split(/\s+/);
         return rows
-          .sort(
-            (a, b) =>
-              terms.filter((t) => b.content.toLowerCase().includes(t)).length -
-              terms.filter((t) => a.content.toLowerCase().includes(t)).length,
-          )
-          .slice(0, options.limit ?? 5);
+          .map((row) => {
+            const content = row.content.toLowerCase();
+            const score = terms.filter((term) => content.includes(term)).length;
+            return { row, score };
+          })
+          .filter(({ score }) => score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, options.limit ?? 5)
+          .map(({ row }) => row);
       },
       forget: (id, owner) => ctx.storage.forget(id, owner),
     };

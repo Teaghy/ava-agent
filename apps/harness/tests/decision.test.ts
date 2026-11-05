@@ -148,6 +148,7 @@ describe('Decision Service boundary', () => {
       content: '默认设备为 VCD-2000',
       category: 'device',
     });
+    const recall = vi.spyOn(h.ctx.memory, 'recall');
     const decide = vi.spyOn(h.ctx.decision, 'decide');
     const model = vi.spyOn(h.ctx.model, 'structuredOutput');
     const result = await h.ctx.agent.run({
@@ -158,11 +159,13 @@ describe('Decision Service boundary', () => {
     const [input, context] = decide.mock.calls[0]!;
     expect(input.availableTools.some((tool) => tool.name === 'knowledge_search')).toBe(true);
     expect(input.availableTools.some((tool) => tool.permission !== 'READ')).toBe(false);
+    expect(input.availableTools.some((tool) => tool.kind === 'memory')).toBe(false);
+    expect(recall).not.toHaveBeenCalled();
     expect(input.availableKnowledgeSources.map((source) => source.name)).toContain('qdrant');
     expect(context).toMatchObject({
       conversationId: 'decision-main',
       step: 1,
-      memory: [expect.objectContaining({ content: '默认设备为 VCD-2000' })],
+      memory: [],
     });
     expect(model).toHaveBeenCalledTimes(decide.mock.calls.length);
     expect(model.mock.calls[0]?.[1].signal).toBe(context.signal);

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type { AgentTool, ToolService } from '../../core/tools/tool.js';
 import type { ToolContext } from '../../core/tools/tool-context.js';
-import type { AuditLog, ToolDescriptor } from '../../core/tools/tool.types.js';
+import { canUseTool, type AuditLog, type ToolDescriptor } from '../../core/tools/tool.types.js';
 import { ToolAuditError } from '../../core/tools/tool-audit-error.js';
 import { AppError, checkAbort } from '../../core/errors.js';
 interface Registered {
@@ -48,7 +48,7 @@ export class ToolRegistry implements ToolService {
     let executionError: unknown;
     try {
       checkAbort(context.signal);
-      if (!context.principal.permissions.includes(entry.descriptor.permission)) {
+      if (!canUseTool(entry.descriptor, context.principal)) {
         status = 'denied';
         throw new AppError('TOOL_FORBIDDEN', '当前身份没有执行此工具的权限。', 403);
       }

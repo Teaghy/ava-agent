@@ -109,6 +109,11 @@ const metadata: Record<string, Metadata> = {
     description: '通过存储服务持久保存和召回用户事实。',
     category: 'storage',
   },
+  'memory-tools': {
+    label: '个人记忆工具',
+    description: '按需检索个人记忆，按当前用户明确指令保存或遗忘。',
+    category: 'tool',
+  },
   'memory-mem0': {
     label: 'Mem0 长期记忆',
     description: '通过 Mem0 服务保存与召回租户和用户隔离的记忆。',

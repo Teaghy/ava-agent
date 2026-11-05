@@ -27,7 +27,7 @@ export const responsePolicyPlugin = {
               (call) =>
                 call.tool === observation.tool &&
                 call.status === 'completed' &&
-                call.kind !== 'retrieval',
+                call.kind === undefined,
             ) && !('error' in Object(observation.result)),
         );
         if (config.evidence === 'knowledge-or-tool' && toolEvidence) return;

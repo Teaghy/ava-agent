@@ -204,7 +204,7 @@ flowchart TD
 ## How Agent Works / How ReAct Works
 
 1. 获取会话锁并校验会话所有者，持久化用户消息与初始 checkpoint。
-2. 读取近期对话、摘要和用户范围内的长期记忆。
+2. 读取近期对话和摘要。启用个人记忆工具时，Agent 可以按需查询该用户的长期记忆。
 3. Runtime 将当前任务、权限范围内的工具目录、知识源目录、近期消息、摘要、观察、记忆、检索文档和取消信号交给 `ctx.decision.decide(input, context)`。默认主模型 Provider 通过 ContextBuilder 在预算内构建模型输入。
 4. Zod 严格校验决策。工具执行前校验参数和服务端权限，执行后写入审计；审计失败中止本轮并要求核对结果，不交给模型自动重试。
 5. 记录 Observation、结构化决策和 checkpoint，进入下一步。
@@ -255,7 +255,9 @@ curl http://localhost:3000/api/v1/knowledge \
 | Long-term Memory    | 用户偏好、稳定事实、设备信息、重要历史 | MemoryService → Mem0 OSS；未启用时使用 storage Provider |
 | Knowledge           | FAQ、手册、SOP、故障案例               | PostgreSQL + Qdrant `knowledge`                         |
 
-不会自动把整段对话写进长期记忆。业务层应在明确授权和筛选后调用 `ctx.memory.remember()`；`recall()`、`forget()` 都要求 tenant/user 范围。Agent 只读取 MemoryService，不依赖 Mem0。
+设置 `MEMORY_TOOLS_ENABLED=true` 并重启 Harness，可为个人账号或个人 Token 启用长期记忆工具。Agent 在需要个人上下文时调用 `memory_search`；发送「请记住：内容」或 `/remember 内容` 可保存，发送「请忘记：记忆 ID」或 `/forget ID` 可遗忘。可先让 Agent 查询某条记忆的 ID。保存内容和删除目标由服务端从当前消息读取，应用 Key 无法使用这些工具。
+
+业务插件可在明确授权后调用 `ctx.memory.remember()`。`recall()` 和 `forget()` 按 `tenantId + userId` 限定范围。召回结果只在当前运行中提供给模型。用户输入的命令和已经发出的答复仍按聊天及审计规则保留，遗忘只影响独立记忆记录。
 
 响应完成后在后台按会话顺序更新有界、滚动的抽取式摘要；达到消息或字节预算阈值时才生成，不会把用户主张自动升级为 confirmedFacts。摘要失败只记录日志，不阻塞回答或把完成状态改成失败，停止时等待维护任务清理。后续可用模型摘要 Provider 替换当前压缩策略。
 

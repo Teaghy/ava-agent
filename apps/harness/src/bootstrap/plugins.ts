@@ -22,6 +22,7 @@ import { answerModelPlugin } from '../plugins/answer-model/index.js';
 import { embeddingPlugin } from '../plugins/embedding-openai/index.js';
 import { rerankerPlugin } from '../plugins/reranker/index.js';
 import { memoryPlugin } from '../plugins/memory/index.js';
+import { memoryToolPlugin } from '../plugins/memory/tools.js';
 import { memoryMem0Plugin } from '../plugins/memory-mem0/index.js';
 import { eventStorePlugin } from '../plugins/event-store/index.js';
 import { sessionsPlugin } from '../plugins/sessions/index.js';
@@ -280,6 +281,7 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       ctx.plugin(eventStorePlugin),
       ctx.plugin(sessionsPlugin),
       ctx.plugin(toolsPlugin),
+      ...(config.MEMORY_TOOLS_ENABLED ? [ctx.plugin(memoryToolPlugin)] : []),
       ctx.plugin(knowledgeRegistryPlugin),
       ctx.plugin(knowledgeQdrantPlugin),
       ctx.plugin(knowledgeCasesPlugin),
@@ -339,6 +341,7 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
         preset: presetName,
         authRequired: true,
         localAuthEnabled: config.LOCAL_AUTH_ENABLED,
+        memoryToolsEnabled: config.MEMORY_TOOLS_ENABLED,
         memoryProvider:
           providers.memory || pluginManager.hasProvider('memory')
             ? 'custom'

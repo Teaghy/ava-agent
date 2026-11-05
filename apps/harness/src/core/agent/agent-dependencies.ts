@@ -2,7 +2,6 @@ import type { CacheService } from '../cache/cache.service.js';
 import type { DecisionService } from '../decision/decision.service.js';
 import type { EventStoreService } from '../event/event-store.service.js';
 import type { GuardService } from '../guard/guard.service.js';
-import type { MemoryService } from '../memory/memory.service.js';
 import type { TelemetryService } from '../observability/telemetry.service.js';
 import type { KnowledgeRegistryService } from '../rag/knowledge-source.js';
 import type { SessionService } from '../session/session.service.js';
@@ -20,5 +19,4 @@ export interface AgentDependencies {
   telemetry: TelemetryService;
   guard: GuardService;
   getAnswer?: () => AnswerService | undefined;
-  memory?: MemoryService;
 }

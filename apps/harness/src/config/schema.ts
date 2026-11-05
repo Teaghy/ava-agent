@@ -71,6 +71,7 @@ export const configSchema = z
     EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
     EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(1536),
     EMBEDDING_BATCH_SIZE: z.coerce.number().int().min(1).max(2048).default(10),
+    MEMORY_TOOLS_ENABLED: bool.default(false),
     MEM0_ENABLED: bool.default(false),
     MEM0_URL: z.string().url().default('http://localhost:8888'),
     MEM0_API_KEY: z.string().default(''),

@@ -14,7 +14,7 @@ export const agentStateSchema = z
     toolCalls: z.array(
       z.object({
         tool: z.string(),
-        kind: z.literal('retrieval').optional(),
+        kind: z.enum(['retrieval', 'memory']).optional(),
         arguments: z.record(z.string(), z.unknown()),
         status: z.enum(['completed', 'failed']),
       }),
