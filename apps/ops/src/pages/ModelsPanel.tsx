@@ -194,7 +194,7 @@ export function ModelsPanel({ token }: { token: string }) {
                 <Cpu size={18} />
                 语言模型 · LLM
               </legend>
-              <p>用于执行决策和最终回答生成。</p>
+              <p>默认语言模型；配置了独立模型的决策、回答或摘要角色由模型分工 Provider 选择。</p>
               <label>
                 LLM Base URL
                 <input

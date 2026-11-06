@@ -35,6 +35,9 @@ import { readToken, saveToken } from '../services/token';
 const slots: { value: PluginSlot; label: string }[] = [
   { value: 'decision', label: '决策 · Decision' },
   { value: 'model', label: '语言模型 · Model' },
+  { value: 'modelRouter', label: '模型分工 · Model router' },
+  { value: 'contextBuilder', label: '上下文构建 · Context builder' },
+  { value: 'summarizer', label: '会话摘要 · Summarizer' },
   { value: 'embedding', label: '向量化 · Embedding' },
   { value: 'reranker', label: '重排序 · Reranker' },
   { value: 'memory', label: '记忆 · Memory' },

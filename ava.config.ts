@@ -4,7 +4,7 @@ import type { HarnessOptions } from '@ava/harness';
 export default {
   // Optional server-side preset; overrides APP_PRESET when specified.
   // preset: 'chat',
-  // Replace a default implementation: decision, model, rag, reranker, etc.
+  // Replace a default implementation: modelRouter, contextBuilder, summarizer, decision, rag, etc.
   providers: {},
   // Add tools, knowledge sources, answer policies and other capabilities.
   plugins: [],

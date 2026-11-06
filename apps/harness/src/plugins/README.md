@@ -23,6 +23,9 @@
 | 插件管理   | [plugin-manager](plugin-manager/README.md)           | 本地 JS 的登记、参数、启停、Provider 切换与平台管理 API |
 | 插件维护   | [ops-console](ops-console/README.md)                 | `ops`，默认关闭的独立维护监听、界面与维护鉴权           |
 | 模型维护   | [model-settings](model-settings/README.md)           | 在线配置模型、密钥及自动重建知识索引                    |
+| 模型分工   | [model-router](model-router/README.md)               | 为决策、回答和摘要选择独立模型                          |
+| 上下文构建 | [context-builder](context-builder/README.md)         | 按任务构建受预算约束的输入消息                          |
+| 会话摘要   | [summarizer](summarizer/README.md)                   | 提取式或显式启用模型的滚动摘要                          |
 | 会话与记忆 | [sessions](sessions/README.md)                       | `sessions`，消息、摘要、运行检查点                      |
 | 会话与记忆 | [event-store](event-store/README.md)                 | `eventStore`，事件追加与回放                            |
 | 会话与记忆 | [memory](memory/README.md)                           | `memory`，基于 Storage 的长期记忆                       |

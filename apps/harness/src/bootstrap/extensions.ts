@@ -5,6 +5,9 @@ import { applicationPresetSchema, type ApplicationPreset } from '@ava/protocol';
 
 export const providerSlots = [
   'model',
+  'modelRouter',
+  'contextBuilder',
+  'summarizer',
   'decision',
   'embedding',
   'reranker',

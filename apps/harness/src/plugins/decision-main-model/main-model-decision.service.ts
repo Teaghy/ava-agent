@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { ContextBuilder } from '../../core/agent/context-builder.js';
+import {
+  buildModelContext,
+  defaultContextService,
+  type ContextService,
+} from '../../core/agent/context.service.js';
 import { decisionSchema } from '../../core/decision/decision.schema.js';
 import type { DecisionService } from '../../core/decision/decision.service.js';
 import type { DecisionInput, DecisionContext } from '../../core/decision/decision.types.js';
@@ -35,25 +39,33 @@ export interface MainModelDecisionConfig {
   streamAnswers?: boolean;
 }
 export class MainModelDecisionService implements DecisionService {
-  private readonly builder: ContextBuilder;
+  private readonly prompt: string;
+  private readonly budget: number;
   private readonly schema: z.ZodType<
     z.infer<typeof modelDecisionSchema> | z.infer<typeof streamingDecisionSchema>
   >;
   constructor(
-    private model: ModelService,
+    private model: ModelService | (() => ModelService),
     private telemetry: TelemetryService,
     config: MainModelDecisionConfig,
+    private readonly contextBuilder: ContextService = defaultContextService,
   ) {
     this.schema = config.streamAnswers ? streamingDecisionSchema : modelDecisionSchema;
     const schemaOverhead = Buffer.byteLength(JSON.stringify(z.toJSONSchema(this.schema))) + 256;
-    const prompt = config.streamAnswers
+    this.prompt = config.streamAnswers
       ? `${config.systemPrompt}\n本轮只选择下一步。资料足够时返回 answer_ready 和引用 ID，不要在决策 JSON 中撰写答案；答案由独立生成步骤输出。需要追问或说明范围时返回 ask_user。`
       : config.systemPrompt;
-    this.builder = new ContextBuilder(prompt, config.contextTokens - schemaOverhead);
+    this.budget = config.contextTokens - schemaOverhead;
   }
   async decide(input: DecisionInput, context: DecisionContext) {
     checkAbort(context.signal);
-    const messages = this.builder.build({
+    const messages = await buildModelContext(this.contextBuilder, {
+      purpose: 'decision',
+      systemPrompt: this.prompt,
+      tokenBudget: this.budget,
+      signal: context.signal,
+      runId: context.runId,
+      conversationId: context.conversationId,
       message: input.message,
       tools: input.availableTools,
       knowledgeSources: input.availableKnowledgeSources,
@@ -72,12 +84,16 @@ export class MainModelDecisionService implements DecisionService {
       'model.decision',
       { run_id: context.runId, step: context.step },
       () =>
-        this.model.structuredOutput(this.schema, {
-          messages,
-          signal: context.signal,
-          runId: context.runId,
-          conversationId: context.conversationId,
-        }),
+        (typeof this.model === 'function' ? this.model() : this.model).structuredOutput(
+          this.schema,
+          {
+            messages,
+            purpose: 'decision',
+            signal: context.signal,
+            runId: context.runId,
+            conversationId: context.conversationId,
+          },
+        ),
     );
     checkAbort(context.signal);
     this.telemetry.log(

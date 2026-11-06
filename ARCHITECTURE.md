@@ -117,7 +117,7 @@ packages/
 
 日常启动读取根 `ava.config.ts` / `.ava/ava.config.js` 的固定装配。`apps/web` 面向客户，`apps/admin` 面向业务管理员，`apps/ops` 面向维护人员。Ops 构建产物随 Harness 发布，由内置 `ops-console` 插件托管；`OPS_ENABLED` 默认关闭，启用后页面和管理 API 使用独立的 `ops` HTTP 服务、`OPS_HOST` / `OPS_PORT` 与 `OPS_API_KEYS`，不注册到公开聊天监听。插件维护要求 `admin && managePlugins`，运行排查独立要求 `inspectRuns:true`，且凭证不能与业务 `API_KEYS` 复用。维护插件是启动基础设施，不进入可卸载的管理插件目录，`ops` 是保留服务。`plugin-manager` 维护原生 Cordis 安装句柄、默认安装函数与成功配置的原子持久化，串行切换时暂停/取消并等待 Agent，失败回退；不响应释放则保持执行门禁关闭并要求重启。当前装配仍为进程级；底座不管理外部插件源码和构建，不提供同进程代码沙箱。管理契约见 [Harness Ops 插件维护](docs/plugin-management.md)。
 
-决策链路：Agent Runtime → `ctx.decision` → 默认 `decision-main-model` → `ctx.model`。Runtime 只管理执行、预算、权限、Guard 和轨迹；默认决策 Provider 使用 ContextBuilder 构建模型上下文。Core 的 `decision/` 明确定义服务、输入/上下文和输出 schema；原 `agent/agent-decision.ts` 保留为兼容导出。
+决策链路：Agent Runtime → `ctx.decision` → 默认 `decision-main-model` → `ctx.modelRouter.get('decision')`；回答和模型摘要分别使用 answer、summary 角色。角色未配置独立连接时按需读取当前 `ctx.model`，无需模型的规则决策部署仍可启动。默认消费者通过可替换的 `ctx.contextBuilder` 构建隔离且受预算约束的模型输入，`ctx.summarizer` 提供提取式或显式启用的模型摘要。Runtime 只管理执行、预算、权限、Guard 和轨迹。接口、配置及替换契约见 [模型分工与上下文构建](docs/model-routing.md)。Core 的 `decision/` 明确定义服务、输入/上下文和输出 schema；原 `agent/agent-decision.ts` 保留为兼容导出。
 
 应用预设由服务端的 `APP_PRESET` 或 `HarnessOptions.preset` 选择，提供 `customer-service`、`knowledge`、`chat` 的默认提示词、内置工具与回答策略。基础 Guard 固定验证引用真实性，再执行可替换的 `responsePolicy`，最后执行追加行业策略；两类策略接收独立快照。预设和模型/基础设施的 mock/live 模式独立，客户端只能读取预设，不能按请求修改它。详见 [应用预设](docs/application-presets.md)。
 

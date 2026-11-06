@@ -66,6 +66,25 @@ export const configSchema = z
     LLM_JSON_OUTPUT: modelCompatibilitySchema.shape.jsonOutput.default('auto'),
     LLM_STREAM_USAGE: modelCompatibilitySchema.shape.streamUsage.default('auto'),
     ANSWER_STREAMING: bool.default(true),
+    DECISION_LLM_BASE_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    DECISION_LLM_API_KEY: z.string().default(''),
+    DECISION_LLM_MODEL: z.string().default(''),
+    DECISION_LLM_MESSAGE_FORMAT: modelCompatibilitySchema.shape.messageFormat.default('auto'),
+    DECISION_LLM_JSON_OUTPUT: modelCompatibilitySchema.shape.jsonOutput.default('auto'),
+    DECISION_LLM_STREAM_USAGE: modelCompatibilitySchema.shape.streamUsage.default('auto'),
+    ANSWER_LLM_BASE_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    ANSWER_LLM_API_KEY: z.string().default(''),
+    ANSWER_LLM_MODEL: z.string().default(''),
+    ANSWER_LLM_MESSAGE_FORMAT: modelCompatibilitySchema.shape.messageFormat.default('auto'),
+    ANSWER_LLM_JSON_OUTPUT: modelCompatibilitySchema.shape.jsonOutput.default('auto'),
+    ANSWER_LLM_STREAM_USAGE: modelCompatibilitySchema.shape.streamUsage.default('auto'),
+    SUMMARY_LLM_BASE_URL: z.union([z.literal(''), z.string().url()]).default(''),
+    SUMMARY_LLM_API_KEY: z.string().default(''),
+    SUMMARY_LLM_MODEL: z.string().default(''),
+    SUMMARY_LLM_MESSAGE_FORMAT: modelCompatibilitySchema.shape.messageFormat.default('auto'),
+    SUMMARY_LLM_JSON_OUTPUT: modelCompatibilitySchema.shape.jsonOutput.default('auto'),
+    SUMMARY_LLM_STREAM_USAGE: modelCompatibilitySchema.shape.streamUsage.default('auto'),
+    SESSION_SUMMARY_MODE: z.enum(['extractive', 'model']).default('extractive'),
     EMBEDDING_BASE_URL: z.string().url().default('https://api.openai.com/v1'),
     EMBEDDING_API_KEY: z.string().default(''),
     EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
@@ -86,9 +105,21 @@ export const configSchema = z
     MAX_TOOL_CALLS: z.coerce.number().int().positive().max(30).default(10),
     MAX_RAG_SEARCHES: z.coerce.number().int().positive().max(10).default(3),
     CONTEXT_TOKEN_BUDGET: z.coerce.number().int().min(4000).max(64000).default(12000),
+    DECISION_CONTEXT_TOKEN_BUDGET: z.coerce.number().int().min(1000).max(64000).optional(),
+    ANSWER_CONTEXT_TOKEN_BUDGET: z.coerce.number().int().min(1000).max(64000).optional(),
+    SUMMARY_CONTEXT_TOKEN_BUDGET: z.coerce.number().int().min(1000).max(64000).optional(),
     RUN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(90000).default(90000),
   })
   .superRefine((c, ctx) => {
+    for (const role of ['DECISION', 'ANSWER', 'SUMMARY'] as const) {
+      const fields = [c[`${role}_LLM_BASE_URL`], c[`${role}_LLM_MODEL`], c[`${role}_LLM_API_KEY`]];
+      if (fields.some(Boolean) && !fields.every(Boolean))
+        ctx.addIssue({
+          code: 'custom',
+          path: [`${role}_LLM_MODEL`],
+          message: `${role}_LLM_BASE_URL, ${role}_LLM_MODEL and ${role}_LLM_API_KEY must be configured together`,
+        });
+    }
     const applications = new Map<string, string>();
     for (const [token, key] of Object.entries(c.APPLICATION_KEYS)) {
       if (Object.hasOwn(c.API_KEYS, token) || Object.hasOwn(c.OPS_API_KEYS, token))

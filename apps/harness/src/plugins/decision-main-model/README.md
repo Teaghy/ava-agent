@@ -21,7 +21,7 @@
 
 每次决策调用一次 `model.structuredOutput()`。模型侧引用只选择 `documentId` 和 `chunkId`；服务端从本次检索文档填充 `title` 和可选的原文 `source`，再经 [decisionSchema](../../core/decision/decision.schema.ts) 校验。引用 ID 不存在时拒绝回答，最终 Guard 继续校验完整引用；自定义 Decision Provider 的契约不变。
 
-live 且 `ANSWER_STREAMING=true` 时，模型只选择 `tool_call`、`ask_user` 或 `answer_ready`。`answer_ready` 只含引用 ID，不在 JSON 中撰写整篇回答；正文由独立 AnswerService 生成。mock 和显式关闭此开关时继续使用既有 final_answer 决策。
+live 默认装配中，模型只选择 `tool_call`、`ask_user` 或 `answer_ready`。`answer_ready` 只含引用 ID，不在 JSON 中撰写整篇回答；正文由独立 AnswerService 生成。`ANSWER_STREAMING=false` 仍拆分生成，只关闭正文流式调用。mock 继续使用既有 final_answer 决策。模型由 `modelRouter` 的 decision 角色选择，输入通过 `contextBuilder` 构建。
 
 决策类型：
 

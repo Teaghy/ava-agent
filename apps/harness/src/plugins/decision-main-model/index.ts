@@ -7,8 +7,16 @@ import {
 export const mainModelDecisionPlugin = {
   name: 'decision-main-model',
   provide: ['decision'],
-  inject: ['model', 'telemetry'],
+  inject: ['modelRouter', 'contextBuilder', 'telemetry'],
   apply(ctx: Context, config: MainModelDecisionConfig) {
-    ctx.provide('decision', new MainModelDecisionService(ctx.model, ctx.telemetry, config));
+    ctx.provide(
+      'decision',
+      new MainModelDecisionService(
+        () => ctx.modelRouter.get('decision'),
+        ctx.telemetry,
+        config,
+        ctx.contextBuilder,
+      ),
+    );
   },
 };

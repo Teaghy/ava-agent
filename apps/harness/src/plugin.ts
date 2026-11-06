@@ -10,5 +10,6 @@ export type {
 } from './bootstrap/extensions.js';
 export { decisionSchema, type AgentDecision } from './core/decision/decision.schema.js';
 export { ContextBuilder } from './core/agent/context-builder.js';
+export { buildModelContext, defaultContextService } from './core/agent/context.service.js';
 export { AppError, checkAbort } from './core/errors.js';
 export { ToolAuditError } from './core/tools/tool-audit-error.js';

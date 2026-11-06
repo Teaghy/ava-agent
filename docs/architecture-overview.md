@@ -41,6 +41,7 @@ live 默认使用 PostgreSQL、Redis、Qdrant 和独立配置的 LLM/Embedding �
 - [插件装配](../apps/harness/src/bootstrap/plugins.ts)、[Agent 循环](../apps/harness/src/plugins/agent-loop/react-loop.ts)
 - [应用 Key 与知识空间](application-access.md)、[本地身份与角色](local-identity.md)
 - [模型配置](model-settings.md)、[插件维护](plugin-management.md)
+- [模型分工与上下文构建](model-routing.md)
 - [共享 UI](../packages/ui/README.md)
 
 图片使用内置 imagegen 生成，并针对工具到 RAG 的连接做了一次定向校正。[生成提示词](diagrams/current-architecture.prompt.md)保留了布局要求和核对后的模块说明。

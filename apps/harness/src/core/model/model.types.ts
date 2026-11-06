@@ -4,6 +4,7 @@ export interface ModelMessage {
 }
 
 export interface ModelRequest {
+  purpose?: import('./model-router.service.js').ModelRole;
   messages: ModelMessage[];
   signal?: AbortSignal;
   maxTokens?: number;

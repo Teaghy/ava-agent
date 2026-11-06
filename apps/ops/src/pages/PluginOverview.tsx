@@ -33,6 +33,21 @@ const capabilityInfo = {
     icon: BrainCircuit,
   },
   model: { title: '语言模型', description: '为执行决策和最终回答提供生成能力。', icon: Cpu },
+  modelRouter: {
+    title: '模型分工',
+    description: '为决策、回答和摘要选择各自使用的模型。',
+    icon: Network,
+  },
+  contextBuilder: {
+    title: '上下文构建',
+    description: '按任务选择历史、摘要和参考资料，并控制输入预算。',
+    icon: Layers3,
+  },
+  summarizer: {
+    title: '会话摘要',
+    description: '压缩较早的历史对话，保留近期消息的输入空间。',
+    icon: FileSearch,
+  },
   embedding: {
     title: '文本向量化',
     description: '将知识和问题编码为可检索的向量。',

@@ -16,18 +16,21 @@
 
 `createHarness(config, options)` 的 `providers` 在启动前选择实现，指定槽位后不挂载该槽位的默认 Provider。每个槽位只能选一个实现。
 
-| 槽位             | 服务接口           | 默认实现                         |
-| ---------------- | ------------------ | -------------------------------- |
-| `decision`       | `DecisionService`  | 主模型结构化决策                 |
-| `model`          | `ModelService`     | mock 或 OpenAI Compatible        |
-| `embedding`      | `EmbeddingService` | mock 或 OpenAI Compatible        |
-| `reranker`       | `RerankerService`  | 透传                             |
-| `rag`            | `RagService`       | 查询改写、融合、重排、上下文选择 |
-| `memory`         | `MemoryService`    | 内置存储或 Mem0                  |
-| `responsePolicy` | `AnswerPolicy`     | 当前预设的回答证据策略           |
-| `storage`        | `StorageService`   | 内存或 PostgreSQL                |
-| `cache`          | `CacheService`     | 内存或 Redis                     |
-| `vector`         | `VectorService`    | 内存或 Qdrant                    |
+| 槽位             | 服务接口             | 默认实现                           |
+| ---------------- | -------------------- | ---------------------------------- |
+| `decision`       | `DecisionService`    | 主模型结构化决策                   |
+| `model`          | `ModelService`       | mock 或 OpenAI Compatible          |
+| `modelRouter`    | `ModelRouterService` | 按决策、回答、摘要角色选择模型     |
+| `contextBuilder` | `ContextService`     | 按任务构建有预算限制的模型输入     |
+| `summarizer`     | `SummarizerService`  | 提取式滚动摘要，可显式启用模型摘要 |
+| `embedding`      | `EmbeddingService`   | mock 或 OpenAI Compatible          |
+| `reranker`       | `RerankerService`    | 透传                               |
+| `rag`            | `RagService`         | 查询改写、融合、重排、上下文选择   |
+| `memory`         | `MemoryService`      | 内置存储或 Mem0                    |
+| `responsePolicy` | `AnswerPolicy`       | 当前预设的回答证据策略             |
+| `storage`        | `StorageService`     | 内存或 PostgreSQL                  |
+| `cache`          | `CacheService`       | 内存或 Redis                       |
+| `vector`         | `VectorService`      | 内存或 Qdrant                      |
 
 以下为可运行的无模型决策装配形式：
 
@@ -61,6 +64,8 @@ await harness.start();
 `loadConfig` 校验字段、鉴权和运行模式；默认外部 Provider 的凭据在 `createHarness` 装配前校验。使用默认 live 模型/Embedding 时仍必须提供各自的 Key；自定义 Provider 自行校验凭据，不需要填写无关的 OpenAI Key。live 默认仍连接外部基础设施，不会静默降级。
 
 ## 追加能力
+
+独立模型连接、摘要模式、角色输入预算及上下文插件示例见 [模型分工与上下文构建](model-routing.md)。
 
 `options.plugins` 安装原生 Cordis 插件，适合注册知识源、工具、答案策略和新服务。不要在此重新声明底座管理的服务；替换服务应使用上面的 `providers`。
 

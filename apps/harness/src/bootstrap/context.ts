@@ -10,6 +10,9 @@ declare module 'cordis' {
     decision: C.DecisionService;
     answer: C.AnswerService;
     model: C.ModelService;
+    modelRouter: C.ModelRouterService;
+    contextBuilder: C.ContextService;
+    summarizer: C.SummarizerService;
     modelCompatibility: C.ModelCompatibilityService;
     tools: C.ToolService;
     sessions: C.SessionService;

@@ -19,6 +19,9 @@ import {
 import { modelMockPlugin, createMockModelPlugin } from '../plugins/model-mock/index.js';
 import { mainModelDecisionPlugin } from '../plugins/decision-main-model/index.js';
 import { answerModelPlugin } from '../plugins/answer-model/index.js';
+import { modelRouterPlugin } from '../plugins/model-router/index.js';
+import { contextBuilderPlugin } from '../plugins/context-builder/index.js';
+import { summarizerPlugin } from '../plugins/summarizer/index.js';
 import { embeddingPlugin } from '../plugins/embedding-openai/index.js';
 import { rerankerPlugin } from '../plugins/reranker/index.js';
 import { memoryPlugin } from '../plugins/memory/index.js';
@@ -105,7 +108,14 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
     if (
       !config.OPS_ENABLED &&
       !pluginManager.hasProvider('model') &&
+      !pluginManager.hasProvider('modelRouter') &&
+      !providers.modelRouter &&
       providers.model === undefined &&
+      !(
+        config.DECISION_LLM_MODEL &&
+        config.ANSWER_LLM_MODEL &&
+        (config.SESSION_SUMMARY_MODE !== 'model' || config.SUMMARY_LLM_MODEL)
+      ) &&
       !models.view().llm.keyConfigured
     )
       throw new AppError(
@@ -195,6 +205,30 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
                 }),
         mock ? 'embedding-mock' : 'embedding-openai',
       ),
+      modelRouter: base(
+        'modelRouter',
+        () =>
+          providers.modelRouter
+            ? ctx.plugin(providers.modelRouter)
+            : ctx.plugin(modelRouterPlugin, config),
+        'model-router',
+      ),
+      contextBuilder: base(
+        'contextBuilder',
+        () => ctx.plugin(providers.contextBuilder ?? contextBuilderPlugin),
+        'context-builder',
+      ),
+      summarizer: base(
+        'summarizer',
+        () =>
+          providers.summarizer
+            ? ctx.plugin(providers.summarizer)
+            : ctx.plugin(summarizerPlugin, {
+                mode: config.SESSION_SUMMARY_MODE,
+                contextTokens: config.SUMMARY_CONTEXT_TOKEN_BUDGET ?? config.CONTEXT_TOKEN_BUDGET,
+              }),
+        'session-summarizer',
+      ),
       reranker: base(
         'reranker',
         () => ctx.plugin(providers.reranker ?? rerankerPlugin),
@@ -234,8 +268,8 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
           : () =>
               ctx.plugin(mainModelDecisionPlugin, {
                 systemPrompt: prompt,
-                contextTokens: config.CONTEXT_TOKEN_BUDGET,
-                streamAnswers: !mock && config.ANSWER_STREAMING,
+                contextTokens: config.DECISION_CONTEXT_TOKEN_BUDGET ?? config.CONTEXT_TOKEN_BUDGET,
+                streamAnswers: !mock,
               }),
         'decision-main-model',
       ),
@@ -289,7 +323,8 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       ctx.plugin(guardPlugin),
       ctx.plugin(answerModelPlugin, {
         systemPrompt: answerPrompt,
-        contextTokens: config.CONTEXT_TOKEN_BUDGET,
+        contextTokens: config.ANSWER_CONTEXT_TOKEN_BUDGET ?? config.CONTEXT_TOKEN_BUDGET,
+        streaming: config.ANSWER_STREAMING,
       }),
       ...((options.demoTools ?? (mock && preset.demoTools))
         ? [ctx.plugin(mockBusinessToolsPlugin)]

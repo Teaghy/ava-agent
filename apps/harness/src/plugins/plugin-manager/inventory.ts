@@ -3,6 +3,21 @@ import type { RuntimePluginView } from '@ava/protocol';
 
 type Metadata = Pick<RuntimePluginView, 'label' | 'description' | 'category'>;
 const metadata: Record<string, Metadata> = {
+  'model-router': {
+    label: '模型分工',
+    description: '按决策、回答和摘要角色选择模型，未配置时使用当前默认模型。',
+    category: 'model',
+  },
+  'context-builder': {
+    label: '上下文构建',
+    description: '按任务组装历史、摘要、记忆和证据，并限制模型输入预算。',
+    category: 'engine',
+  },
+  'session-summarizer': {
+    label: '会话摘要算法',
+    description: '提取或调用摘要模型压缩会话历史。',
+    category: 'storage',
+  },
   'application-access': {
     label: '应用接入',
     description: '管理应用凭证、即时撤销与知识空间绑定。',

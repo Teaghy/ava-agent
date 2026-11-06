@@ -78,6 +78,104 @@ async function answer(h: Awaited<ReturnType<typeof createHarness>>) {
 }
 
 describe('Local plugin administration', () => {
+  it.each(['modelRouter', 'contextBuilder', 'summarizer'] as const)(
+    'replaces and restores the %s provider through management',
+    async (slot) => {
+      const { root, statePath } = await fixture();
+      const { h } = await setup(statePath);
+      const source = {
+        modelRouter: '{ get() { return ctx.model; } }',
+        contextBuilder: "{ build() { return [{ role: 'user', content: 'external-context' }]; } }",
+        summarizer: "{ async summarize() { return 'external-summary'; } }",
+      }[slot];
+      const entry = await moduleFile(
+        root,
+        `external-${slot}`,
+        `export default {
+        name: 'external-${slot}', provide: ['${slot}'], inject: ['model'],
+        apply(ctx) { ctx.provide('${slot}', ${source}); }
+      };`,
+      );
+      const original = h.ctx[slot];
+      const installed = await h.pluginManager.install({
+        name: `external-${slot}`,
+        entry,
+        kind: 'provider',
+        slot,
+      });
+      const id = installed.plugins.find((plugin) => plugin.name === `external-${slot}`)!.id;
+      expect(h.ctx[slot]).not.toBe(original);
+      expect(installed.providers.find((provider) => provider.slot === slot)).toMatchObject({
+        source: 'plugin',
+        status: 'active',
+      });
+      if (slot === 'modelRouter') expect(h.ctx.modelRouter.get('answer')).toBe(h.ctx.model);
+      if (slot === 'summarizer')
+        expect(await h.ctx.summarizer.summarize({ conversationId: 'test', messages: [] })).toBe(
+          'external-summary',
+        );
+      if (slot === 'contextBuilder')
+        expect(
+          await h.ctx.contextBuilder.build({
+            purpose: 'answer',
+            systemPrompt: '',
+            tokenBudget: 1000,
+            state: { observations: [], retrievedDocuments: [] },
+            tools: [],
+            message: 'hello',
+            recent: [],
+            memories: [],
+          }),
+        ).toEqual([{ role: 'user', content: 'external-context' }]);
+      const broken = await moduleFile(
+        root,
+        `broken-${slot}`,
+        `export default {
+        name: 'broken-${slot}', provide: ['${slot}'], apply() { throw new Error('activation failed'); }
+      };`,
+      );
+      await expect(
+        h.pluginManager.install({ name: 'broken', entry: broken, kind: 'provider', slot }),
+      ).rejects.toBeDefined();
+      expect(
+        h.pluginManager.snapshot().providers.find((provider) => provider.slot === slot),
+      ).toMatchObject({ source: 'plugin', status: 'active', pluginId: id });
+      const restored = await h.pluginManager.action({ id, action: 'disable' });
+      expect(restored.providers.find((provider) => provider.slot === slot)).toMatchObject({
+        source: 'default',
+        status: 'active',
+      });
+      expect(await answer(h)).toBeTruthy();
+    },
+  );
+  it('uses the current default model after a provider switch for every unassigned role', async () => {
+    const { root, statePath } = await fixture();
+    const { h } = await setup(statePath);
+    const entry = await moduleFile(
+      root,
+      'default-model',
+      `export default {
+      name: 'external-default-model', provide: ['model'],
+      apply(ctx) { ctx.provide('model', {
+        async structuredOutput(schema) { return schema.parse({ type: 'ask_user', question: 'new default' }); },
+        async chat() { return { text: 'new default' }; },
+        async *stream() { yield { text: 'new default' }; }
+      }); }
+    };`,
+    );
+    const installed = await h.pluginManager.install({
+      name: 'default-model',
+      entry,
+      kind: 'provider',
+      slot: 'model',
+    });
+    for (const role of ['decision', 'answer', 'summary'] as const)
+      expect(h.ctx.modelRouter.get(role)).toBe(h.ctx.model);
+    expect(await answer(h)).toBe('new default');
+    await h.pluginManager.action({ id: installed.plugins[0]!.id, action: 'disable' });
+    expect(h.ctx.modelRouter.get('decision')).toBe(h.ctx.model);
+    expect(await answer(h)).not.toBe('new default');
+  });
   it('reports real built-in modules, nested Ops modules and service dependencies without exposing config', async () => {
     const { h, request } = await setup();
     const snapshot = await (await request()).json();

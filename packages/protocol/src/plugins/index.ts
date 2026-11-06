@@ -4,6 +4,9 @@ export const MAX_PLUGIN_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const pluginSlotSchema = z.enum([
   'decision',
   'model',
+  'modelRouter',
+  'contextBuilder',
+  'summarizer',
   'embedding',
   'reranker',
   'memory',

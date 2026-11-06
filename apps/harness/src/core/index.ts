@@ -30,6 +30,9 @@ export type { StreamEvent, HttpRequest, HttpResponse, HttpHandler } from './http
 export type { MemoryService } from './memory/memory.service.js';
 export type { MemoryInput, MemoryItem, RecallOptions } from './memory/memory.types.js';
 export type { ModelService } from './model/model.service.js';
+export type { ModelRole, ModelRouterService } from './model/model-router.service.js';
+export type { ContextService, ContextBuildRequest } from './agent/context.service.js';
+export type { SummarizerService, SummaryInput } from './session/summarizer.service.js';
 export type { ModelMessage, ModelRequest, ModelResponse, ModelDelta } from './model/model.types.js';
 export type { TelemetryService } from './observability/telemetry.service.js';
 export type { RagService } from './rag/rag.service.js';
