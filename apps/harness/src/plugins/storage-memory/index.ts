@@ -14,6 +14,7 @@ import { MemoryApplicationStore } from './application-store.js';
 import { sameConversationOwner } from '../../core/session/ownership.js';
 import { knowledgeDocumentKey, sameKnowledgeSpace } from '../../core/rag/knowledge-scope.js';
 export class InMemoryStorage implements StorageService {
+  readonly persistence: 'memory' | 'file' = 'memory';
   readonly applications = new MemoryApplicationStore();
   readonly applicationScopes = true;
   readonly identity = new MemoryIdentityStore();
@@ -58,6 +59,29 @@ export class InMemoryStorage implements StorageService {
   private runDates = new Map<string, { tenantId: string; createdAt: string }>();
   readonly chunks = new Map<string, RetrievedDocument[]>();
   readonly memories = new Map<string, MemoryItem>();
+  snapshot() {
+    return structuredClone({
+      conversations: this.conversations,
+      conversationDates: this.conversationDates,
+      deletedConversations: this.deletedConversations,
+      messageRows: this.messageRows,
+      eventRows: this.eventRows,
+      audits: this.audits,
+      summaries: this.summaries,
+      runs: this.runs,
+      runDates: this.runDates,
+      chunks: this.chunks,
+      memories: this.memories,
+      identity: this.identity.snapshot(),
+      applications: this.applications.snapshot(),
+    });
+  }
+  restore(snapshot: ReturnType<InMemoryStorage['snapshot']>) {
+    const { identity, applications, ...state } = structuredClone(snapshot);
+    Object.assign(this, state);
+    this.identity.restore(identity);
+    this.applications.restore(applications);
+  }
   async assertConversation(id: string, p: Principal): Promise<void> {
     const old = this.conversations.get(id);
     if (!old || this.deletedConversations.has(id))

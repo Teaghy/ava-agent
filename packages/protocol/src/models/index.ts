@@ -84,6 +84,8 @@ export const modelSettingsViewSchema = z.object({
     effectiveCompatibility: resolvedModelCompatibilitySchema.optional(),
   }),
   embedding: embeddingConnectionSchema.extend({
+    editable: z.boolean().default(true),
+    reason: z.string().optional(),
     keyConfigured: z.boolean(),
     collection: z.string(),
   }),

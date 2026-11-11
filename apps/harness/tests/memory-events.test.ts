@@ -76,7 +76,14 @@ describe('Memory and event store', () => {
     expect(JSON.stringify(trace)).not.toContain(content);
     expect(JSON.stringify(trace)).not.toContain('乌龙茶');
     expect(await h.ctx.eventStore.recover(lookup.runId, principal.tenantId)).toMatchObject({
-      toolCalls: [{ tool: 'memory_search', kind: 'memory', arguments: {} }],
+      toolCalls: expect.arrayContaining([
+        { tool: 'memory_search', kind: 'memory', arguments: {}, status: 'completed' },
+        expect.objectContaining({
+          tool: 'knowledge_search',
+          kind: 'retrieval',
+          status: 'completed',
+        }),
+      ]),
     });
 
     await invoke('forget-memory', `/forget ${item!.id}`, 'memory_forget');

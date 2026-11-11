@@ -13,3 +13,10 @@ export interface VectorService {
   upsert(points: VectorPoint[]): Promise<void>;
   delete(ids: string[]): Promise<void>;
 }
+
+/** Creates independent indexes so model settings can stage, switch and roll back safely. */
+export interface VectorStoreFactory {
+  name: string;
+  create(collection: string, dimensions: number): Promise<VectorService>;
+  close?(): Promise<void>;
+}

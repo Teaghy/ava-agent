@@ -78,6 +78,7 @@ describe('Application plugin configuration', () => {
     'export default null;',
     'export default { plugnis: [] };',
     'export default { preset: "unknown" };',
+    'export default { vectorStore: { name: "invalid" } };',
   ])('rejects an invalid default export: %s', async (source) => {
     const root = await workspace();
     await writeFile(join(root, 'ava.config.mjs'), source);

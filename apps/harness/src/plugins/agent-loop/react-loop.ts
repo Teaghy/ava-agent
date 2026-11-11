@@ -16,6 +16,9 @@ export interface AgentConfig {
   isPaused?: () => boolean;
   insufficientEvidenceReply?: string;
   streamAnswers?: boolean;
+  /** Knowledge presets must retrieve before accepting a model's unsupported terminal reply. */
+  requireKnowledgeSearch?: boolean;
+  allowToolEvidence?: boolean;
 }
 
 export function createAgentService(ctx: AgentDependencies, c: AgentConfig): AgentService {
@@ -124,13 +127,15 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
           const recent = await ctx.sessions.recent(state.conversationId);
           const summary = await ctx.sessions.summary(state.conversationId);
           let ragSearches = 0;
-          for (state.step = 1; state.step <= c.maxSteps; state.step++) {
+          for (let step = 1; step <= c.maxSteps; step++) {
             checkAbort(signal);
+            state.step = step;
+            await ctx.sessions.checkpoint(state, tenant);
             await emit({ type: 'agent.step', data: { step: state.step, phase: 'decision' } });
             const start = performance.now();
             phase = 'decision';
             phaseStart = start;
-            const decision = decisionSchema.parse(
+            let decision = decisionSchema.parse(
               await ctx.telemetry.span(
                 'decision.decide',
                 { run_id: state.runId, conversation_id: state.conversationId, step: state.step },
@@ -171,13 +176,62 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
               },
               'agent decision',
             );
+            const proposedDecision = decision;
+            // A terminal shortcut is not evidence. Route it through the normal audited tool path,
+            // then let the next decision see the actual result. Never retry business tools here.
+            if (
+              c.requireKnowledgeSearch &&
+              decision.type !== 'tool_call' &&
+              !state.toolCalls.some(
+                (call) => call.kind === 'retrieval' && call.status === 'completed',
+              ) &&
+              !(
+                c.allowToolEvidence &&
+                state.observations.some(
+                  (observation) =>
+                    state.toolCalls.some(
+                      (call) =>
+                        call.tool === observation.tool &&
+                        call.kind === undefined &&
+                        call.status === 'completed',
+                    ) && !('error' in Object(observation.result)),
+                )
+              )
+            ) {
+              const search = ctx.tools.get('knowledge_search');
+              if (!search || !canUseTool(search, input.principal))
+                throw new AppError(
+                  'KNOWLEDGE_SEARCH_REQUIRED',
+                  '回答前需要成功检索知识库，当前无法执行检索。',
+                  422,
+                );
+              if (state.toolCalls.some((call) => call.tool === search.name))
+                throw new AppError(
+                  'KNOWLEDGE_SEARCH_FAILED',
+                  '知识检索未成功，暂时无法确认，请稍后重试。',
+                  502,
+                );
+              decision = {
+                type: 'tool_call',
+                tool: search.name,
+                arguments: { query: input.message },
+              };
+            }
             const kind =
               decision.type === 'tool_call' ? ctx.tools.get(decision.tool)?.kind : undefined;
             const recordedDecision =
               kind === 'memory' && decision.type === 'tool_call'
                 ? { ...decision, arguments: {} }
                 : decision;
-            await append('agent_decision', recordedDecision);
+            await append('agent_decision', {
+              ...recordedDecision,
+              step: state.step,
+              ...(proposedDecision !== decision
+                ? {
+                    routing: { reason: 'knowledge_search_required', proposedDecision },
+                  }
+                : {}),
+            });
             await append('execution_span', {
               phase,
               step: state.step,
@@ -301,7 +355,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
                 citations,
                 runId: state.runId,
               });
-              await append('assistant_message', { answer, citations });
+              await append('assistant_message', { answer, citations, step: state.step });
               state.status = 'completed';
               await ctx.sessions.checkpoint(state, tenant);
               const result: AgentResult = {
@@ -326,8 +380,8 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
               throw new AppError('RAG_LIMIT', '知识检索次数已达上限。', 422);
             state.status = 'waiting_tool';
             await ctx.sessions.checkpoint(state, tenant);
-            await append('tool_call', recordedDecision);
-            if (isRag) await append('rag_search', decision.arguments);
+            await append('tool_call', { ...recordedDecision, step: state.step });
+            if (isRag) await append('rag_search', { ...decision.arguments, step: state.step });
             await emit({ type: 'tool.started', data: { tool: decision.tool } });
             let result: unknown;
             let status: 'completed' | 'failed' = 'completed';
@@ -376,6 +430,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             if (isRag)
               await append('rag_result', {
                 documents: state.retrievedDocuments.map((d) => d.id),
+                step: state.step,
               });
             await ctx.sessions.checkpoint(state, tenant);
             await emit({ type: 'tool.completed', data: { tool: decision.tool, status } });

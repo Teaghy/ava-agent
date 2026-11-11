@@ -50,15 +50,19 @@ export default {
 
 注册扩展遵循已有插件安装、权限和生命周期规则；停用扩展后移除其规则，自动配置恢复下一条匹配规则或默认值。直接构造 `OpenAICompatibleModelService` 可传入 compatibility 选项；独立自定义 ModelService Provider 负责自己的兼容策略。
 
-mock 部署仍使用内置模拟模型，本页只展示配置。使用自定义 model、embedding、vector、rag Provider 时，本页禁止在线应用，避免覆盖插件契约。停用对应的外部 Provider，或由应用开发者调整固定装配后再使用。
+mock 部署仍使用内置模拟模型，本页只展示配置。使用自定义 model Provider 时，本页禁止在线应用，避免覆盖插件契约。自定义 embedding、vector 或 rag Provider 只锁定向量模型配置，默认 LLM 仍可独立在线切换；页面会显示向量卡片不可编辑的原因，API 也会拒绝修改该连接。自定义模型路由中的独立角色仍由其 Provider 管理。
+
+本机无需外部数据库的持久化装配见 [本地文件部署](../examples/local-file/README.md)。纯内存存储只在当前进程保留会话；在线切换 LLM 不会重新创建存储，但进程重启需要持久化 Provider 才能保留历史。
+
+本地文件装配通过 `vectorStore` 提供独立索引工厂，同样支持在线切换 Embedding。控制器使用同一个向量服务入口原子切换索引，既有检索组件无需重新创建。工厂负责按 collection 和维度持久保存索引并在关闭时等待写入；它与 `providers.vector` 不能同时配置。普通自定义 Provider 的限制不变。
 
 ## 向量模型切换
 
-更换 Embedding 地址、模型名称或维度时，服务会自动扫描 SQL 中所有租户已发布的知识分片，以新模型生成向量，写入新的 Qdrant collection。文档、分片 ID、内容、租户和元数据均保留。仅修改 Key 或批次大小不会重建。
+更换 Embedding 地址、模型名称或维度时，服务会自动扫描存储中所有租户已发布的知识分片，以新模型生成向量，写入新的索引：默认部署使用 Qdrant collection，本地文件部署使用独立索引文件。文档、分片 ID、内容、租户和元数据均保留。仅修改 Key 或批次大小不会重建。
 
 重建全部成功且配置文件保存成功后，才一起切换 Embedding 与向量索引。验证、重建或保存失败，原模型及索引继续使用；失败任务可修正参数后重试。Agent 恢复失败时关闭执行入口并恢复此前配置文件，需要重启排查。切换和重建暂不支持跨多个 Harness 实例协调，适用于单实例部署。
 
-旧 collection 和失败任务生成的 collection 不自动删除，以保留恢复依据；维护人员确认不再使用后可自行清理。外部知识源、Mem0 中的长期记忆使用各自索引，不参与本次重建。自定义存储需要实现按 ID 游标分页的 `scanKnowledgeChunks(afterId, limit)`，否则重建会拒绝执行。
+旧 collection、旧索引文件和失败任务生成的索引不自动删除，以保留恢复依据；维护人员确认不再使用后可自行清理。外部知识源、Mem0 中的长期记忆使用各自索引，不参与本次重建。自定义存储需要实现按 ID 游标分页的 `scanKnowledgeChunks(afterId, limit)`，否则重建会拒绝执行。
 
 需要恢复 `.env` 默认配置时，先停止服务，备份并移走 `models.json`，再启动。应确保 `.env` 的 Embedding 模型、维度与 `QDRANT_COLLECTION` 中已有向量匹配；不要在运行中编辑状态文件。
 

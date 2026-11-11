@@ -58,6 +58,7 @@ export class ModelSettingsController {
     private unavailableReason: () => string | undefined,
     private telemetry: () => TelemetryService | undefined,
     private compatibility: ModelCompatibilityService,
+    private embeddingUnavailableReason: () => string | undefined,
   ) {
     this.current = storedSchema.parse({
       llm: {
@@ -99,6 +100,7 @@ export class ModelSettingsController {
     unavailableReason: () => string | undefined,
     telemetry: () => TelemetryService | undefined,
     compatibility: ModelCompatibilityService = new ModelCompatibilityRegistry(),
+    embeddingUnavailableReason: () => string | undefined = () => undefined,
   ): Promise<ModelSettingsController> {
     const controller = new ModelSettingsController(
       config,
@@ -107,6 +109,7 @@ export class ModelSettingsController {
       unavailableReason,
       telemetry,
       compatibility,
+      embeddingUnavailableReason,
     );
     if (controller.statePath) {
       try {
@@ -159,7 +162,12 @@ export class ModelSettingsController {
         keyConfigured: !!llmKey,
         effectiveCompatibility: this.compatibility.resolve(llm, llm.compatibility),
       },
-      embedding: { ...embedding, keyConfigured: !!embeddingKey },
+      embedding: {
+        ...embedding,
+        keyConfigured: !!embeddingKey,
+        editable: !reason && !this.embeddingUnavailableReason(),
+        ...(this.embeddingUnavailableReason() ? { reason: this.embeddingUnavailableReason() } : {}),
+      },
       ...(this.job ? { job: structuredClone(this.job) } : {}),
     };
   }
@@ -230,6 +238,8 @@ export class ModelSettingsController {
     if (this.pending)
       throw new AppError('MODEL_CHANGE_IN_PROGRESS', '已有模型切换任务，请等待完成。', 409);
     const input = modelApplySchema.parse(request);
+    if (input.embedding && this.embeddingUnavailableReason())
+      throw new AppError('EMBEDDING_SETTINGS_UNAVAILABLE', this.embeddingUnavailableReason()!, 409);
     if (input.revision !== this.revision)
       throw new AppError('MODEL_SETTINGS_CONFLICT', '配置已更新，请刷新后再保存。', 409);
     const next = structuredClone(this.current);
@@ -274,6 +284,12 @@ export class ModelSettingsController {
         throw new AppError(
           'MODEL_SETTINGS_UNAVAILABLE',
           '请先停用自定义模型或向量 Provider。',
+          409,
+        );
+      if (input.embedding && this.embeddingUnavailableReason())
+        throw new AppError(
+          'EMBEDDING_SETTINGS_UNAVAILABLE',
+          this.embeddingUnavailableReason()!,
           409,
         );
       await this.update(next, job, this.lifetime.signal);
@@ -360,7 +376,8 @@ export class ModelSettingsController {
         job.checks.streaming = true;
       }
     }
-    if (embedding && (embeddingChanged || unchanged)) await embedding.embed('模型连接验证', signal);
+    if (embedding && (embeddingChanged || (unchanged && !this.embeddingUnavailableReason())))
+      await embedding.embed('模型连接验证', signal);
     const old = this.current.embedding;
     const changed =
       old.baseURL !== next.embedding.baseURL ||

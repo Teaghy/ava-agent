@@ -24,6 +24,18 @@ const optionsSchema = z
     preset: applicationPresetSchema.optional(),
     quiet: z.boolean().optional(),
     providers: z.record(z.string(), z.unknown()).optional(),
+    vectorStore: z
+      .custom<NonNullable<HarnessOptions['vectorStore']>>(
+        (value) =>
+          !!value &&
+          typeof value === 'object' &&
+          'name' in value &&
+          typeof value.name === 'string' &&
+          'create' in value &&
+          typeof value.create === 'function' &&
+          (!('close' in value) || typeof value.close === 'function'),
+      )
+      .optional(),
     plugins: z.array(plugin).optional(),
     systemPrompt: z.string().optional(),
     demoTools: z.boolean().optional(),

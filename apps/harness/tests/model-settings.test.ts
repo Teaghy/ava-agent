@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { defaultModelCompatibility } from '@ava/protocol';
 import { tmpdir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { ModelSettingsController } from '../src/plugins/model-settings/controller.js';
 import { InMemoryStorage } from '../src/plugins/storage-memory/index.js';
 import { InMemoryVector } from '../src/plugins/vector-memory/index.js';
@@ -13,6 +13,8 @@ import { chunkDocument } from '../src/core/rag/chunker.js';
 import { createHarness } from '../src/bootstrap/plugins.js';
 import { storageMemoryPlugin } from '../src/plugins/storage-memory/index.js';
 import { cacheMemoryPlugin } from '../src/plugins/cache-memory/index.js';
+import { storageFilePlugin } from '../src/plugins/storage-file/index.js';
+import { createFileVectorStore, vectorFilePlugin } from '../src/plugins/vector-file/index.js';
 
 const servers: Server[] = [],
   roots: string[] = [];
@@ -37,6 +39,8 @@ afterEach(async () => {
 });
 async function fixture() {
   let failEmbedding = false;
+  let embeddingCalls = 0;
+  let failEmbeddingAt = Infinity;
   let failStreaming = false;
   const modelRequests: string[] = [];
   const server = createServer(async (request, response) => {
@@ -60,7 +64,7 @@ async function fixture() {
     const body = JSON.parse(text);
     response.setHeader('content-type', 'application/json');
     if (request.url?.endsWith('/embeddings')) {
-      if (failEmbedding) {
+      if (failEmbedding || ++embeddingCalls >= failEmbeddingAt) {
         response.statusCode = 401;
         response.end(JSON.stringify({ error: { message: 'private-provider-message' } }));
         return;
@@ -154,6 +158,9 @@ async function fixture() {
     buildVector,
     url,
     modelRequests,
+    failEmbeddingAfter: (successes: number) => {
+      failEmbeddingAt = embeddingCalls + successes + 1;
+    },
     failStream: () => {
       failStreaming = true;
     },
@@ -170,6 +177,260 @@ async function settled(controller: ModelSettingsController) {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 describe('Ops model settings', () => {
+  it('rebuilds managed file indexes across tenants and dimensions, keeps the facade and restores the active pair on restart', async () => {
+    const f = await fixture();
+    const vectorPath = `${f.statePath}.vectors`;
+    const options = () => ({
+      quiet: true,
+      pluginManagement: { statePath: join(dirname(f.statePath), 'plugins.json') },
+      vectorStore: createFileVectorStore(vectorPath),
+      providers: {
+        storage: {
+          ...storageFilePlugin,
+          apply: (ctx: Parameters<typeof storageFilePlugin.apply>[0]) =>
+            storageFilePlugin.apply(ctx, { path: `${f.statePath}.storage` }),
+        },
+        cache: cacheMemoryPlugin,
+      },
+    });
+    const config = {
+      ...f.config,
+      PORT: 0,
+      OPS_ENABLED: true,
+      OPS_PORT: 0,
+      SEED_KNOWLEDGE: false,
+      OPS_API_KEYS: { admin: { ...principal, admin: true, managePlugins: true } },
+    };
+    let h = await createHarness(config, options());
+    harnesses.push(h);
+    await h.start();
+    const headers = { authorization: 'Bearer admin', 'content-type': 'application/json' };
+    const endpoint = `http://127.0.0.1:${h.opsPort}/api/v1/ops/models`;
+    expect((await (await fetch(endpoint, { headers })).json()).embedding.editable).toBe(true);
+    await h.ctx.sessions.open('retained', principal);
+    await h.ctx.sessions.add('retained', 'user', '保留会话');
+    for (const [tenantId, knowledgeSpaceId] of [
+      ['demo', undefined],
+      ['other', undefined],
+      ['demo', 'app-space'],
+    ])
+      await h.ctx.rag.ingest(
+        { id: 'guide', title: 'Guide', content: '保修两年', metadata: {}, knowledgeSpaceId },
+        tenantId!,
+      );
+    const chunks = await h.ctx.storage.scanKnowledgeChunks!(undefined, 100);
+    expect(chunks).toHaveLength(3);
+    const originalFile = await readFile(vectorPath);
+    const facade = h.ctx.vector;
+    const response = await fetch(`${endpoint}/apply`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        revision: 0,
+        embedding: { baseURL: f.url, model: 'new-embedding', dimensions: 3, batchSize: 100 },
+      }),
+    });
+    expect(response.status).toBe(202);
+    let view: ReturnType<typeof f.controller.view>;
+    await vi.waitFor(async () => {
+      view = await (await fetch(endpoint, { headers })).json();
+      expect(view.job?.status).toBe('completed');
+    });
+    expect(view!).toMatchObject({
+      revision: 1,
+      embedding: { model: 'new-embedding', dimensions: 3 },
+      job: { processed: 3, total: 3 },
+    });
+    expect(view!.embedding.collection).not.toBe('knowledge');
+    expect(h.ctx.vector).toBe(facade);
+    expect((await h.ctx.embedding.embed('test')).length).toBe(3);
+    expect(await facade.search([1, 1, 1], 'demo', {}, 10)).toMatchObject([
+      { tenantId: 'demo', knowledgeSpaceId: undefined },
+    ]);
+    expect(await facade.search([1, 1, 1], 'demo', {}, 10, undefined, 'app-space')).toMatchObject([
+      { knowledgeSpaceId: 'app-space' },
+    ]);
+    expect(await facade.search([1, 1, 1], 'other', {}, 10)).toMatchObject([{ tenantId: 'other' }]);
+    await expect(facade.search([1, 1], 'demo', {}, 10)).rejects.toMatchObject({
+      code: 'VECTOR_DIMENSION_MISMATCH',
+    });
+    expect(await readFile(vectorPath)).toEqual(originalFile);
+    const collection = view!.embedding.collection;
+    await h.stop();
+    h = await createHarness(config, options());
+    harnesses.push(h);
+    await h.start();
+    const restored = await (
+      await fetch(`http://127.0.0.1:${h.opsPort}/api/v1/ops/models`, { headers })
+    ).json();
+    expect(restored.embedding).toMatchObject({
+      collection,
+      model: 'new-embedding',
+      dimensions: 3,
+      editable: true,
+    });
+    expect((await h.ctx.embedding.embed('after restart')).length).toBe(3);
+    expect(await h.ctx.vector.search([1, 1, 1], 'demo', {}, 10)).toHaveLength(1);
+    expect(await h.ctx.sessions.recent('retained')).toMatchObject([{ content: '保留会话' }]);
+    expect(await h.ctx.storage.scanKnowledgeChunks!(undefined, 100)).toEqual(chunks);
+  });
+  it('keeps the old file and model active when a later reindex batch fails, including after restart', async () => {
+    const f = await fixture();
+    const path = `${f.statePath}.vectors`;
+    let store = createFileVectorStore(path);
+    const controller = await ModelSettingsController.prepare(
+      f.config,
+      f.statePath,
+      (name, dimensions) => store.create(name, dimensions),
+      () => undefined,
+      () => silentTelemetry,
+    );
+    controllers.push(controller);
+    controller.bind(
+      () => f.storage,
+      async (operation) => operation(),
+    );
+    await controller.initializeVector();
+    // 101 chunks ensure a new index has already saved its first page when the next page fails.
+    for (let i = 0; i < 99; i++) {
+      const document = {
+        id: `guide-${i}`,
+        title: 'Guide',
+        content: 'Published knowledge',
+        metadata: {},
+      };
+      await f.storage.saveKnowledge(document, 'tenant-a', chunkDocument(document, 'tenant-a'));
+    }
+    const chunks = await f.storage.scanKnowledgeChunks(undefined, 200);
+    await controller.vectorService.upsert(
+      chunks.map((document) => ({ id: document.id, document, vector: [1, 1] })),
+    );
+    const original = await readFile(path);
+    f.failEmbeddingAfter(2);
+    controller.apply({
+      revision: 0,
+      embedding: { baseURL: f.url, model: 'broken-later', dimensions: 3, batchSize: 100 },
+    });
+    await settled(controller);
+    expect(controller.view()).toMatchObject({
+      revision: 0,
+      embedding: { model: 'old-embedding', collection: 'knowledge', dimensions: 2 },
+      job: { status: 'failed', processed: 100, total: 101 },
+    });
+    expect(await readFile(path)).toEqual(original);
+    expect(await controller.vectorService.search([1, 1], 'tenant-a', {}, 200)).toHaveLength(100);
+    await controller.close();
+    await store.close!();
+    store = createFileVectorStore(path);
+    const restored = await ModelSettingsController.prepare(
+      f.config,
+      f.statePath,
+      (name, dimensions) => store.create(name, dimensions),
+      () => undefined,
+      () => silentTelemetry,
+    );
+    controllers.push(restored);
+    await restored.initializeVector();
+    expect(restored.view().embedding).toMatchObject({
+      model: 'old-embedding',
+      collection: 'knowledge',
+      dimensions: 2,
+    });
+    expect(await restored.vectorService.search([1, 1], 'tenant-a', {}, 200)).toHaveLength(100);
+    await restored.close();
+    await store.close!();
+  });
+  it('hot switches LLM with a local vector provider and restores conversations, vectors and model settings after restart', async () => {
+    const f = await fixture();
+    const storagePath = `${f.statePath}.storage`;
+    const vectorPath = `${f.statePath}.vectors`;
+    const config = loadConfig({
+      NODE_ENV: 'test',
+      APP_MODE: 'live',
+      SEED_KNOWLEDGE: 'false',
+      PORT: '0',
+      OPS_ENABLED: 'true',
+      OPS_PORT: '0',
+      API_KEYS: JSON.stringify({ business: principal }),
+      OPS_API_KEYS: JSON.stringify({ admin: { ...principal, admin: true, managePlugins: true } }),
+      LLM_BASE_URL: f.url,
+      LLM_MODEL: 'old',
+      LLM_API_KEY: 'local-key',
+      EMBEDDING_BASE_URL: f.url,
+      EMBEDDING_API_KEY: 'local-embedding',
+      EMBEDDING_DIMENSIONS: '2',
+    });
+    const options = {
+      quiet: true,
+      pluginManagement: { statePath: `${f.statePath}.plugins` },
+      providers: {
+        storage: {
+          ...storageFilePlugin,
+          apply: (ctx: Parameters<typeof storageFilePlugin.apply>[0]) =>
+            storageFilePlugin.apply(ctx, { path: storagePath }),
+        },
+        cache: cacheMemoryPlugin,
+        vector: {
+          ...vectorFilePlugin,
+          apply: (ctx: Parameters<typeof vectorFilePlugin.apply>[0]) =>
+            vectorFilePlugin.apply(ctx, { path: vectorPath }),
+        },
+      },
+    };
+    let h = await createHarness(config, options);
+    harnesses.push(h);
+    await h.start();
+    const headers = { authorization: 'Bearer admin', 'content-type': 'application/json' };
+    const endpoint = `http://127.0.0.1:${h.opsPort}/api/v1/ops/models`;
+    const view = await (await fetch(endpoint, { headers })).json();
+    expect(view).toMatchObject({ enabled: true, persistent: true, embedding: { editable: false } });
+    const storage = h.ctx.storage;
+    await h.ctx.sessions.open('retained', principal);
+    await h.ctx.sessions.add('retained', 'user', '历史保留');
+    await h.ctx.rag.ingest(
+      { id: 'retained-guide', title: 'Guide', content: '保修两年', metadata: {} },
+      'demo',
+    );
+    const vectorResults = await h.ctx.vector.search([1, 1], 'demo', {}, 10);
+    const forbidden = await fetch(`${endpoint}/apply`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        revision: 0,
+        embedding: { baseURL: f.url, model: 'other', dimensions: 2, batchSize: 10 },
+      }),
+    });
+    expect(forbidden.status).toBe(409);
+    expect(
+      (
+        await fetch(`${endpoint}/apply`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ revision: 0, llm: { baseURL: f.url, model: 'hot-model' } }),
+        })
+      ).status,
+    ).toBe(202);
+    await vi.waitFor(async () =>
+      expect((await (await fetch(endpoint, { headers })).json()).job.status).toBe('completed'),
+    );
+    expect(h.ctx.storage).toBe(storage);
+    expect(await h.ctx.sessions.recent('retained')).toMatchObject([{ content: '历史保留' }]);
+    await h.stop();
+    h = await createHarness(config, options);
+    harnesses.push(h);
+    await h.start();
+    const restored = await (
+      await fetch(`http://127.0.0.1:${h.opsPort}/api/v1/ops/models`, { headers })
+    ).json();
+    expect(restored).toMatchObject({ source: 'ops', llm: { model: 'hot-model' } });
+    expect(await h.ctx.storage.listConversations(principal, 100)).toMatchObject([
+      { id: 'retained' },
+    ]);
+    expect(await h.ctx.sessions.recent('retained')).toMatchObject([{ content: '历史保留' }]);
+    expect(await h.ctx.vector.search([1, 1], 'demo', {}, 10)).toEqual(vectorResults);
+    await h.ctx.model.chat({ messages: [] });
+    expect(f.modelRequests.at(-1)).toBe('hot-model');
+  });
   it('validates streaming after multi-turn decisions and keeps the active configuration if streaming fails', async () => {
     const f = await fixture();
     f.failStream();

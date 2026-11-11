@@ -26,6 +26,8 @@ export type HarnessProviders = Partial<Record<Exclude<ProviderSlot, 'model'>, Ha
   model?: HarnessPlugin | false;
 };
 export interface HarnessOptions {
+  /** Index lifecycle managed by model settings; mutually exclusive with providers.vector. */
+  vectorStore?: import('../core/vector/vector.service.js').VectorStoreFactory;
   /** Server-side application defaults; never accepted from a chat request. */
   preset?: ApplicationPreset;
   quiet?: boolean;
@@ -61,6 +63,18 @@ function provisions(plugin: HarnessPlugin): string[] {
   return typeof plugin.provide === 'string' ? [plugin.provide] : (plugin.provide ?? []);
 }
 export function validateExtensions(options: HarnessOptions, mock: boolean): void {
+  if (
+    options.vectorStore &&
+    (options.providers?.vector ||
+      typeof options.vectorStore.name !== 'string' ||
+      !options.vectorStore.name.trim() ||
+      typeof options.vectorStore.create !== 'function' ||
+      (options.vectorStore.close !== undefined && typeof options.vectorStore.close !== 'function'))
+  )
+    throw new AppError(
+      'INVALID_VECTOR_STORE',
+      'vectorStore 需要有效的索引工厂，且不能同时配置 providers.vector。',
+    );
   if (options.preset !== undefined && !applicationPresetSchema.safeParse(options.preset).success)
     throw new AppError(
       'INVALID_APP_PRESET',

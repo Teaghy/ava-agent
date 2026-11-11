@@ -7,6 +7,7 @@ import type { ConversationSummary, Message } from '../session/session.types.js';
 import type { AuditLog } from '../tools/tool.types.js';
 import type { Conversation as ConversationInfo, RunQuery, RunSummary } from '@ava/protocol';
 export interface StorageService {
+  persistence?: 'memory' | 'file' | 'postgres';
   applications?: import('../applications/application-store.js').ApplicationStore;
   /** Explicit opt-in: enforces application ownership and knowledge-space partitioning. */
   applicationScopes?: boolean;

@@ -76,11 +76,13 @@ export function Settings({
         <div>
           <strong>会话保存</strong>
           <p>
-            {config?.persistence === 'postgres'
-              ? '对话记录保存在服务端数据库。'
-              : config?.persistence === 'custom'
-                ? '会话由自定义存储插件管理，保存方式由服务端配置。'
-                : '当前为内存模式，服务重启后记录将清空。'}
+            {config?.persistence === 'file'
+              ? '本地文件持久化，重启后保留对话记录。'
+              : config?.persistence === 'postgres'
+                ? '对话记录保存在服务端数据库。'
+                : config?.persistence === 'custom'
+                  ? '会话由自定义存储插件管理，保存方式由服务端配置。'
+                  : '当前为内存模式，服务重启后记录将清空。'}
           </p>
         </div>
       </div>

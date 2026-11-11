@@ -5,6 +5,7 @@ import type { RunDetail, RunEvent, RunListRequest, RunSummary } from '@ava/proto
 import { Activity, ArrowLeft, ArrowRight, Clock3, RefreshCw, Search } from 'lucide-react';
 import './runs.css';
 import { RunTrajectory } from './RunTrajectory';
+import { projectTrace } from './trace-projection';
 
 const statuses = {
   running: '执行中',
@@ -153,12 +154,8 @@ export function RunsPanel({ token }: { token: string }) {
       ...(until ? { until: new Date(until).toISOString() } : {}),
     });
   };
-  const events =
-    detail?.events.filter(
-      (e) =>
-        (checkpoints || e.type !== 'checkpoint') &&
-        !(e.type === 'execution_span' && data(e).phase === 'decision'),
-    ) ?? [];
+  const records = detail ? projectTrace(detail, checkpoints) : [];
+  const events = records.map((record) => record.event);
   const current = events.find((e) => e.id === node);
   const duration = (event: RunEvent) => {
     let value = data(event).durationMs;
@@ -286,7 +283,7 @@ export function RunsPanel({ token }: { token: string }) {
                   <code>{row.runId}</code>
                   <span className="runs-row-meta">
                     <span>{row.userId || '未知用户'}</span>
-                    <span>{row.step} 步</span>
+                    <span>决策 {row.step} 步</span>
                   </span>
                 </button>
               ))}
@@ -360,7 +357,8 @@ export function RunsPanel({ token }: { token: string }) {
                         Date.parse(detail.run.updatedAt) - Date.parse(detail.run.createdAt),
                       ),
                     )}{' '}
-                    · 最近事件 {date(detail.run.updatedAt)}
+                    · 决策 {detail.run.step} 步 · {records.length} 个可见事件 · 最近事件{' '}
+                    {date(detail.run.updatedAt)}
                   </p>
                 </div>
                 <div className="runs-trace-heading">
@@ -428,11 +426,20 @@ export function RunsPanel({ token }: { token: string }) {
                               aria-pressed={node === event.id}
                               onClick={() => setNode(event.id)}
                             >
-                              <span className="runs-node-number">{index + 1}</span>
+                              <span
+                                className="runs-node-number"
+                                title={`事件 ${index + 1}`}
+                                aria-label={`事件 ${index + 1}`}
+                              >
+                                {index + 1}
+                              </span>
                               <span>
                                 <strong>{eventLabel(event)}</strong>
                                 {typeof payload.tool === 'string' && <code>{payload.tool}</code>}
                                 <small>
+                                  {records[index]?.step
+                                    ? `第 ${records[index]!.step} 步 · `
+                                    : '准备 · '}
                                   {new Date(event.createdAt).toLocaleTimeString('zh-CN', {
                                     hour12: false,
                                   })}
@@ -464,7 +471,8 @@ export function RunsPanel({ token }: { token: string }) {
                   </div>
                 )}
                 <p className="runs-note">
-                  按实际事件顺序展示；旧记录可能没有节点耗时。运行中状态是最后保存的状态，进程中断后可能尚未更新。常见凭据字段已过滤，业务内容仅供授权维护人员排查。
+                  步数按 Agent
+                  决策轮次计算，同一步可包含检索、工具和回答等多个事件；节点数字是事件序号。按实际事件顺序展示，旧记录可能没有节点耗时。运行中状态是最后保存的状态，进程中断后可能尚未更新。常见凭据字段已过滤，业务内容仅供授权维护人员排查。
                 </p>
               </>
             )

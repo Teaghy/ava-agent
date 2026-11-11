@@ -16,6 +16,7 @@ import { PostgresApplicationStore } from './application-store.js';
 import { sameConversationOwner } from '../../core/session/ownership.js';
 import { knowledgeDocumentKey } from '../../core/rag/knowledge-scope.js';
 export class PostgresStorage implements StorageService {
+  readonly persistence = 'postgres' as const;
   readonly applications: PostgresApplicationStore;
   readonly applicationScopes = true;
   readonly identity: PostgresIdentityStore;

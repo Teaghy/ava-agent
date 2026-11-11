@@ -3,6 +3,13 @@ import type { Account, IdentityStore, LoginSession } from '../../core/identity/i
 export class MemoryIdentityStore implements IdentityStore {
   private accounts = new Map<string, Account>();
   private sessions = new Map<string, LoginSession>();
+  snapshot() {
+    return structuredClone({ accounts: this.accounts, sessions: this.sessions });
+  }
+  restore(state: ReturnType<MemoryIdentityStore['snapshot']>) {
+    this.accounts = structuredClone(state.accounts);
+    this.sessions = structuredClone(state.sessions);
+  }
   private key(tenantId: string, userId: string) {
     return JSON.stringify([tenantId, userId]);
   }

@@ -75,6 +75,7 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
     options.startupTimeoutMs,
   );
   const ctx = createContext();
+  if (options.vectorStore?.close) ctx.effect(() => () => options.vectorStore!.close!());
   const modelCompatibility = new ModelCompatibilityRegistry();
   const models = await ModelSettingsController.prepare(
     config,
@@ -82,23 +83,28 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
       ? join(dirname(options.pluginManagement.statePath), 'models.json')
       : false,
     (collection, dimensions) =>
-      createQdrantVector({
-        url: config.QDRANT_URL,
-        apiKey: config.QDRANT_API_KEY,
-        collection,
-        dimensions,
-      }),
+      options.vectorStore
+        ? options.vectorStore.create(collection, dimensions)
+        : createQdrantVector({
+            url: config.QDRANT_URL,
+            apiKey: config.QDRANT_API_KEY,
+            collection,
+            dimensions,
+          }),
     () =>
-      providers.model !== undefined ||
-      providers.embedding ||
-      providers.vector ||
-      providers.rag ||
-      pluginManager.hasProvider('model') ||
-      pluginManager.hasProvider('embedding')
-        ? '当前使用自定义模型或向量 Provider，请先停用对应 Provider。'
+      providers.model !== undefined || pluginManager.hasProvider('model')
+        ? '当前使用自定义语言模型 Provider，请先停用对应 Provider。'
         : undefined,
     () => ctx.get('telemetry'),
     modelCompatibility,
+    () =>
+      providers.embedding ||
+      providers.vector ||
+      providers.rag ||
+      pluginManager.hasProvider('embedding') ||
+      pluginManager.hasProvider('rag')
+        ? '当前使用自定义向量或检索 Provider；可在线切换 LLM，向量模型由应用配置管理。'
+        : undefined,
   );
   models.bind(
     () => ctx.storage,
@@ -301,16 +307,18 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
           : ctx.plugin(cacheMemoryPlugin),
       providers.vector
         ? application(ctx.plugin(providers.vector))
-        : external
-          ? mock
-            ? ctx.plugin(vectorQdrantPlugin, {
-                url: config.QDRANT_URL,
-                apiKey: config.QDRANT_API_KEY,
-                collection: config.QDRANT_COLLECTION,
-                dimensions: 64,
-              })
-            : ctx.plugin(models.vectorPlugin)
-          : ctx.plugin(vectorMemoryPlugin),
+        : options.vectorStore
+          ? ctx.plugin({ ...models.vectorPlugin, name: options.vectorStore.name })
+          : external
+            ? mock
+              ? ctx.plugin(vectorQdrantPlugin, {
+                  url: config.QDRANT_URL,
+                  apiKey: config.QDRANT_API_KEY,
+                  collection: config.QDRANT_COLLECTION,
+                  dimensions: 64,
+                })
+              : ctx.plugin(models.vectorPlugin)
+            : ctx.plugin(vectorMemoryPlugin),
       ...pluginManager.mount(ctx, runtime),
       ctx.plugin(eventStorePlugin),
       ctx.plugin(sessionsPlugin),
@@ -336,6 +344,8 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
           maxRagSearches: config.MAX_RAG_SEARCHES,
           runTimeoutMs: config.RUN_TIMEOUT_MS,
           streamAnswers: config.ANSWER_STREAMING,
+          requireKnowledgeSearch: preset.knowledgeTools,
+          allowToolEvidence: preset.evidence === 'knowledge-or-tool',
           insufficientEvidenceReply:
             presetName === 'customer-service'
               ? '我目前的服务范围是产品咨询、使用指导和售后支持，暂时无法为这个问题提供可靠答复。你可以补充产品型号或具体业务问题；如需进一步确认，请联系人工客服。'
@@ -383,7 +393,9 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
             : config.MEM0_ENABLED
               ? 'mem0-oss-rest'
               : 'storage',
-        persistence: providers.storage ? 'custom' : external ? 'postgres' : 'memory',
+        persistence:
+          ctx.storage.persistence ??
+          (providers.storage ? 'custom' : external ? 'postgres' : 'memory'),
       })),
       ...(options.plugins ?? []).map((plugin) => application(ctx.plugin(plugin))),
     ];

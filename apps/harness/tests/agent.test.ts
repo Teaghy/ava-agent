@@ -326,9 +326,29 @@ describe('Agent ReAct runtime', () => {
   });
   it('enforces maximum steps independently from tool budget', async () => {
     const h = await setup({ MAX_AGENT_STEPS: '1' });
+    const emitted: StreamEvent[] = [];
     await expect(
-      h.ctx.agent.run({ conversationId: 'step-limit', message: 'E102', principal }),
+      h.ctx.agent.run(
+        { conversationId: 'step-limit', message: 'E102', principal },
+        async (event) => {
+          emitted.push(event);
+        },
+      ),
     ).rejects.toMatchObject({ code: 'STEP_LIMIT' });
+    const [run] = await h.ctx.storage.listRuns({
+      tenantId: principal.tenantId,
+      conversationId: 'step-limit',
+      limit: 1,
+      offset: 0,
+    });
+    expect(run?.step).toBe(1);
+    expect(emitted.filter((event) => event.type === 'agent.step')).toHaveLength(1);
+    const trace = await h.ctx.eventStore.replay(run!.runId, principal.tenantId);
+    expect(trace.find((event) => event.type === 'error')?.payload).toMatchObject({
+      code: 'STEP_LIMIT',
+      step: 1,
+    });
+    expect((await h.ctx.eventStore.recover(run!.runId, principal.tenantId))?.step).toBe(1);
   });
   it('enforces tool budget and rejects invalid decisions', async () => {
     const h = await setup({ MAX_TOOL_CALLS: '1' });

@@ -20,11 +20,15 @@ pnpm dev
 
 默认 `APP_MODE=mock`，无需数据库、模型密钥或 Docker，监听 `http://127.0.0.1:3000`。先在根 `.env` 配置每位使用者独立的 `API_KEYS`，再在聊天页面输入对应 Token；也可开启 [本地账号登录与成员管理](docs/local-identity.md)。mock 模式使用真实的 Cordis 插件组合、Agent 循环、工具注册、RAG、上下文构建、Guard 和 SSE；只替换外部 Provider。重启会丢失内存数据。
 
+本机使用真实模型且需要保留历史时，可采用 [本地文件持久化装配](examples/local-file/README.md)，无需 PostgreSQL、Redis 或 Qdrant；会话和知识向量保存到 `data/local/`，默认 LLM 和 Embedding 均支持 Ops 在线切换。
+
 Web 页面支持发送问题、Markdown 回答、SSE 状态、停止生成、新建/搜索/恢复会话、查看知识引用，以及移动端布局。服务设置展示当前长期记忆和会话存储方式；支持可选本地账号登录、退出与修改密码，也保留访问 Token。Token 保存在当前标签页的 sessionStorage 中，账号会话使用 HttpOnly Cookie，刷新后恢复。开启 `LOCAL_AUTH_ENABLED=true` 后，`/admin/` 提供租户内成员管理，模型与插件维护仍在独立 Ops。
 
 每次请求在回答下显示处理阶段、等待动画和实时用时，结束或停止后固定本次耗时；该计时仅保留在当前页面，不写入历史消息。live 模式先返回简短的 `answer_ready` 决策，独立 AnswerService 再生成最终正文；默认 `ANSWER_STREAMING=true`，普通知识问答在引用和依据预检后实时发送 `answer.delta`。执行过业务工具或配置额外行业审核时，改为完整生成、校验后发送。设为 false 时保持决策与回答分工，使用非流式正文生成并完整校验后发送。
 
 默认 `APP_PRESET=customer-service`。在根 `.env` 改为 `knowledge` 可启动知识问答，改为 `chat` 可启动自由聊天；修改后重启。也可在 `ava.config.ts` 指定 `preset`，或通过 `providers.responsePolicy` 替换证据要求。预设不会改变权限、审计和引用真实性校验，前端按服务端预设调整文案。mock 聊天回复仅用于验证流程，详见 [应用预设与回答策略](docs/application-presets.md)。
+
+客服和知识问答预设会在服务端补足被模型跳过的知识检索；未检索或检索失败不能直接成为“知识库没有”的答复。约束、纠正轨迹和步数口径见 [检索前置约束](docs/required-retrieval.md)。
 
 `pnpm dev` 构建 Harness、共享包和前端后，由 pnpm 监听 Harness、Web、Protocol、SDK、Shared 的变更。需要 Vite HMR 时分别运行 `pnpm dev:harness` 和 `pnpm dev:web`，浏览器打开 `http://127.0.0.1:5173`。
 

@@ -144,6 +144,11 @@ const metadata: Record<string, Metadata> = {
     description: '持久保存会话、知识分片、运行事件与审计数据。',
     category: 'storage',
   },
+  'storage-file': {
+    label: '本地文件存储',
+    description: '将会话、知识与运行记录原子保存到本地文件，重启后恢复。',
+    category: 'storage',
+  },
   'cache-memory': {
     label: '内存缓存',
     description: '在当前进程提供缓存、执行锁与限流。',
@@ -162,6 +167,11 @@ const metadata: Record<string, Metadata> = {
   'vector-qdrant': {
     label: 'Qdrant 向量索引',
     description: '按租户查询和维护已发布知识向量。',
+    category: 'storage',
+  },
+  'vector-file': {
+    label: '本地文件向量索引',
+    description: '持久保存本机知识向量，重启后恢复租户隔离的索引。',
     category: 'storage',
   },
   observability: {

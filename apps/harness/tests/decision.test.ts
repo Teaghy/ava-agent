@@ -203,11 +203,18 @@ describe('Decision Service boundary', () => {
       principal,
     });
     expect(result).toMatchObject({ status: 'ask_user', answer: '请提供设备序列号。' });
-    expect(decide).toHaveBeenCalledTimes(1);
-    expect(
-      (await h.ctx.eventStore.replay(result.runId, 'demo')).find((e) => e.type === 'agent_decision')
-        ?.payload,
-    ).toEqual({ type: 'ask_user', question: '请提供设备序列号。' });
+    expect(decide).toHaveBeenCalledTimes(2);
+    const trace = await h.ctx.eventStore.replay(result.runId, 'demo');
+    expect(trace.find((e) => e.type === 'agent_decision')?.payload).toMatchObject({
+      type: 'tool_call',
+      tool: 'knowledge_search',
+      routing: { reason: 'knowledge_search_required', proposedDecision: { type: 'ask_user' } },
+    });
+    expect(trace.findLast((e) => e.type === 'agent_decision')?.payload).toMatchObject({
+      type: 'ask_user',
+      question: '请提供设备序列号。',
+      step: 2,
+    });
   });
   it('rejects hidden reasoning returned by a custom decision provider before any answer event', async () => {
     const h = await setup();

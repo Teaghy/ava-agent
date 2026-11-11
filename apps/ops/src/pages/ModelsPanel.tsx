@@ -112,14 +112,18 @@ export function ModelsPanel({ token }: { token: string }) {
           ...llm,
           ...(clearLlm ? { apiKey: null } : llmKey.trim() ? { apiKey: llmKey.trim() } : {}),
         },
-        embedding: {
-          ...embedding,
-          ...(clearEmbedding
-            ? { apiKey: null }
-            : embeddingKey.trim()
-              ? { apiKey: embeddingKey.trim() }
-              : {}),
-        },
+        ...(view.embedding.editable
+          ? {
+              embedding: {
+                ...embedding,
+                ...(clearEmbedding
+                  ? { apiKey: null }
+                  : embeddingKey.trim()
+                    ? { apiKey: embeddingKey.trim() }
+                    : {}),
+              },
+            }
+          : {}),
       });
       setView(next);
       setLlmKey('');
@@ -319,12 +323,20 @@ export function ModelsPanel({ token }: { token: string }) {
                 )}
               </details>
             </fieldset>
-            <fieldset className="plugins-panel models-card" disabled={disabled}>
+            <fieldset
+              className="plugins-panel models-card"
+              disabled={disabled || !view.embedding.editable}
+            >
               <legend>
                 <Database size={18} />
                 向量模型 · Embedding
               </legend>
               <p>更换地址、模型或维度后自动重建所有租户的已发布知识。</p>
+              {view.embedding.reason && (
+                <p className="plugins-feedback" role="status">
+                  {view.embedding.reason}
+                </p>
+              )}
               <label>
                 Embedding Base URL
                 <input

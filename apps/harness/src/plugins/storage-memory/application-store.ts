@@ -7,6 +7,13 @@ import type {
 export class MemoryApplicationStore implements ApplicationStore {
   private applications = new Map<string, Application>();
   private credentials = new Map<string, ApplicationCredential>();
+  snapshot() {
+    return structuredClone({ applications: this.applications, credentials: this.credentials });
+  }
+  restore(state: ReturnType<MemoryApplicationStore['snapshot']>) {
+    this.applications = structuredClone(state.applications);
+    this.credentials = structuredClone(state.credentials);
+  }
   private key(tenantId: string, applicationId: string) {
     return JSON.stringify([tenantId, applicationId]);
   }
