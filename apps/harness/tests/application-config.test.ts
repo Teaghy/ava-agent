@@ -118,7 +118,7 @@ describe('Application plugin configuration', () => {
       join(root, 'ava.config.mjs'),
       `
       import { orders } from './extensions/orders.mjs';
-      export default { demoTools: false, providers: { decision: orders, model: false } };
+      export default { preset: 'chat', demoTools: false, providers: { decision: orders, model: false } };
     `,
     );
     const options = await loadApplicationConfig({ root, source: false });

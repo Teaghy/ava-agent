@@ -195,14 +195,29 @@ export class OpenAICompatibleModelService implements ModelService {
     };
     if (choice?.finish_reason === 'length')
       return invalid('MODEL_OUTPUT_TRUNCATED', '模型输出达到长度上限，未能完整生成决策。');
+    // Accept one complete Markdown wrapper, never extract JSON from prose or repair its body.
+    const fenced = /^```(?:json)?[\t ]*\r?\n([\s\S]*?)\r?\n```$/i.exec(content.trim());
     let parsed: unknown;
     try {
-      parsed = JSON.parse(content);
+      parsed = JSON.parse(fenced ? fenced[1]! : content);
     } catch {
       return invalid('INVALID_MODEL_JSON', '模型未返回有效的 JSON 决策。');
     }
     const result = schema.safeParse(parsed);
     if (!result.success) return invalid('INVALID_MODEL_OUTPUT', '模型返回了无效的结构化决策。');
+    if (fenced)
+      this.telemetry?.log(
+        {
+          event: 'model.output.normalized',
+          run_id: r.runId,
+          conversation_id: r.conversationId,
+          model: this.config.model,
+          model_role: r.purpose,
+          normalization: 'json-fence',
+          content_length: content.length,
+        },
+        'normalized structured model output',
+      );
     return result.data;
   }
 }

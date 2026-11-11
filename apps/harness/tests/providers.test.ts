@@ -6,6 +6,8 @@ import { ModelCompatibilityRegistry } from '../src/plugins/model-compatibility/i
 import { OpenAICompatibleModelService } from '../src/plugins/model-openai/index.js';
 import { OpenAIEmbedding } from '../src/plugins/embedding-openai/index.js';
 import { Mem0Memory } from '../src/plugins/memory-mem0/index.js';
+import { MainModelDecisionService } from '../src/plugins/decision-main-model/main-model-decision.service.js';
+import type { TelemetryService } from '../src/core/observability/telemetry.service.js';
 const servers: Server[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -283,6 +285,134 @@ describe('Provider wire contracts', () => {
     ).rejects.toMatchObject({ code });
     expect(seen.join('')).not.toContain('private-reasoning');
   });
+
+  it.each([
+    ['json', '\n'],
+    ['JSON', '\r\n'],
+    ['', '\n'],
+  ])('accepts a complete %s fence through the decision service (%j)', async (language, newline) => {
+    let calls = 0;
+    const logs: Record<string, unknown>[] = [];
+    const decision = {
+      type: 'tool_call',
+      tool: 'knowledge_search',
+      arguments: { query: '保修期多久？保留 ```json 和 } 字符' },
+    };
+    const fence = '```';
+    const url = await fixture(() => {
+      calls++;
+      return {
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: {
+              content: ` \n${fence}${language}\t${newline}${JSON.stringify(decision)}${newline}${fence}\n `,
+            },
+          },
+        ],
+      };
+    });
+    const telemetry: TelemetryService = {
+      span: (_name, _attributes, fn) => fn(),
+      log: (data: Record<string, unknown>) => {
+        logs.push(data);
+      },
+    };
+    const model = new OpenAICompatibleModelService(
+      {
+        baseURL: url,
+        model: 'small-model',
+        apiKey: 'private-key',
+        compatibility: { ...defaultModelCompatibility, jsonOutput: 'prompt' },
+      },
+      telemetry,
+    );
+    const service = new MainModelDecisionService(model, telemetry, {
+      systemPrompt: 'Return a decision.',
+      contextTokens: 12000,
+    });
+    expect(
+      await service.decide(
+        {
+          message: '保修期多久？',
+          entities: {},
+          availableTools: [],
+          availableKnowledgeSources: [],
+        },
+        {
+          runId: 'fenced-run',
+          conversationId: 'fenced-conversation',
+          step: 1,
+          signal: new AbortController().signal,
+          recentMessages: [],
+          observations: [],
+          memory: [],
+          retrievedDocuments: [],
+        },
+      ),
+    ).toEqual(decision);
+    expect(calls).toBe(1);
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        event: 'model.output.normalized',
+        run_id: 'fenced-run',
+        model_role: 'decision',
+        normalization: 'json-fence',
+      }),
+    );
+    expect(JSON.stringify(logs)).not.toMatch(/保修期|private-key|knowledge_search/);
+  });
+
+  it.each([
+    ['```json\n{"answer":"ok"}\n```', 'json-object'],
+    ['```json\n{"answer":"ok"}\n```', 'prompt'],
+  ] as const)('accepts a JSON fence in %s with %s mode', async (content, jsonOutput) => {
+    const url = await fixture(() => ({
+      choices: [{ finish_reason: 'stop', message: { content } }],
+    }));
+    const model = new OpenAICompatibleModelService({
+      baseURL: url,
+      model: 'test',
+      apiKey: 'test',
+      compatibility: { ...defaultModelCompatibility, jsonOutput },
+    });
+    expect(
+      await model.structuredOutput(z.object({ answer: z.string() }).strict(), { messages: [] }),
+    ).toEqual({ answer: 'ok' });
+  });
+
+  it.each([
+    ['stop', '说明：\n```json\n{"answer":"ok"}\n```', 'INVALID_MODEL_JSON'],
+    ['stop', '```json\n{"answer":"ok"}\n```\n说明', 'INVALID_MODEL_JSON'],
+    [
+      'stop',
+      '```json\n{"answer":"ok"}\n```\n```json\n{"answer":"other"}\n```',
+      'INVALID_MODEL_JSON',
+    ],
+    ['stop', '```json\n{"answer":"ok"}', 'INVALID_MODEL_JSON'],
+    ['stop', '```javascript\n{"answer":"ok"}\n```', 'INVALID_MODEL_JSON'],
+    ['stop', '```json\n{"answer":"ok",}\n```', 'INVALID_MODEL_JSON'],
+    ['stop', '```json\n{"answer":"ok","reasoning":"hidden"}\n```', 'INVALID_MODEL_OUTPUT'],
+    ['length', '```json\n{"answer":"ok"}\n```', 'MODEL_OUTPUT_TRUNCATED'],
+  ])(
+    'rejects unsafe or incomplete fenced output (%s, %s)',
+    async (finish_reason, content, code) => {
+      let calls = 0;
+      const url = await fixture(() => {
+        calls++;
+        return { choices: [{ finish_reason, message: { content } }] };
+      });
+      const model = new OpenAICompatibleModelService({
+        baseURL: url,
+        model: 'test',
+        apiKey: 'test',
+      });
+      await expect(
+        model.structuredOutput(z.object({ answer: z.string() }).strict(), { messages: [] }),
+      ).rejects.toMatchObject({ code });
+      expect(calls).toBe(1);
+    },
+  );
 
   it.each([
     ['length', '{"answer":', 'MODEL_OUTPUT_TRUNCATED'],

@@ -33,10 +33,11 @@ const decisionSource = (answer: string) => `export default {
     return { type: 'ask_user', question: config.question || ${JSON.stringify(answer)} };
   } }); }
 };`;
-async function setup(statePath?: string, safeMode = false, timeout = 1000) {
+async function setup(statePath?: string, safeMode = false, timeout = 1000, preset = 'chat') {
   const h = await createHarness(
     loadConfig({
       NODE_ENV: 'test',
+      APP_PRESET: preset,
       PORT: '0',
       SEED_KNOWLEDGE: 'false',
       OPS_ENABLED: 'true',
@@ -294,7 +295,7 @@ describe('Local plugin administration', () => {
       export function apply(ctx) { ctx.provide('responsePolicy', { name: 'allow', validate() {} }); }
     `,
     );
-    const { h, request } = await setup(statePath);
+    const { h, request } = await setup(statePath, false, 1000, 'customer-service');
     await h.ctx.plugin({
       name: 'industry-review',
       inject: ['guard'],

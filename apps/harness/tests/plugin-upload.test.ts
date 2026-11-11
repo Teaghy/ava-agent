@@ -96,6 +96,7 @@ async function setup() {
   const config = loadConfig({
     NODE_ENV: 'test',
     APP_MODE: 'mock',
+    APP_PRESET: 'chat',
     INFRA_MODE: 'memory',
     SEED_KNOWLEDGE: 'false',
     PORT: '0',

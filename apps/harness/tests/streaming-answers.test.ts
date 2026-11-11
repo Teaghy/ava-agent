@@ -209,14 +209,17 @@ describe('Final answer generation and delivery', () => {
     expect(result.status).toBe('ask_user');
     expect(result.answer).toContain('服务范围');
     expect(stream).not.toHaveBeenCalled();
-    vi.spyOn(h.ctx.decision, 'decide').mockResolvedValue({
+    const chat = await setup('chat');
+    const chatStream = vi.spyOn(chat.ctx.model, 'stream');
+    vi.spyOn(chat.ctx.decision, 'decide').mockResolvedValue({
       type: 'answer_ready',
       citations: [{ documentId: 'fake', chunkId: 'fake', title: 'fake' }],
     });
     await expect(
-      h.ctx.agent.run({ conversationId: 'bad-reference', message: 'hello', principal }),
+      chat.ctx.agent.run({ conversationId: 'bad-reference', message: 'hello', principal }),
     ).rejects.toMatchObject({ code: 'INVALID_CITATION' });
     expect(stream).not.toHaveBeenCalled();
+    expect(chatStream).not.toHaveBeenCalled();
   });
 
   it('marks a partially delivered stream failed without storing it as a successful answer', async () => {

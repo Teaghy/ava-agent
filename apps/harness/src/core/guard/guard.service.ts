@@ -1,6 +1,10 @@
 import type { AgentState } from '../agent/agent.types.js';
 import type { Citation } from '@ava/protocol';
 export interface GuardService {
+  /** Check whether retrieved candidates cover the original question before another model decision. */
+  validateQuestion?(state: AgentState, signal?: AbortSignal): Promise<void>;
+  /** Evidence-only preflight before buffered generation; wording policies run on the final answer. */
+  validateEvidence?(citations: Citation[], state: AgentState, signal?: AbortSignal): Promise<void>;
   canStream?(): boolean;
   register(policy: AnswerPolicy): () => void;
   validate(
@@ -8,7 +12,7 @@ export interface GuardService {
     citations: Citation[],
     state: AgentState,
     signal?: AbortSignal,
-    responseType?: 'final_answer' | 'ask_user',
+    responseType?: 'final_answer' | 'ask_user' | 'scope_reply',
   ): Promise<void>;
 }
 
@@ -22,6 +26,6 @@ export interface AnswerPolicy {
     citations: Citation[],
     state: AgentState,
     signal?: AbortSignal,
-    responseType?: 'final_answer' | 'ask_user',
+    responseType?: 'final_answer' | 'ask_user' | 'scope_reply',
   ): void | Promise<void>;
 }

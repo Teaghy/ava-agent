@@ -197,6 +197,8 @@ describe('Decision Service boundary', () => {
     for (const fiber of h.ctx.registry.get(modelMockPlugin)!.fibers) await fiber.dispose();
     await vi.waitFor(() => expect(h.ctx.get('agent')).toBeDefined());
     expect(h.ctx.get('model')).toBeUndefined();
+    // This test isolates provider replacement; knowledge scope is covered by knowledge-scope.test.ts.
+    vi.spyOn(h.ctx.responsePolicy, 'validate').mockResolvedValue();
     const result = await h.ctx.agent.run({
       conversationId: 'decision-custom',
       message: '设备故障',

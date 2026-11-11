@@ -7,7 +7,37 @@ export const guardPlugin = {
   inject: ['responsePolicy'],
   apply(ctx: Context) {
     const policies = new Map<string, AnswerPolicy>();
+    const validateCitations = (
+      citations: Parameters<GuardService['validate']>[1],
+      state: Parameters<GuardService['validate']>[2],
+    ) => {
+      for (const citation of citations) {
+        const doc = state.retrievedDocuments.find(
+          (d) => d.id === citation.chunkId && d.documentId === citation.documentId,
+        );
+        if (!doc || doc.title !== citation.title || doc.source !== citation.source)
+          throw new AppError('INVALID_CITATION', '答案引用无法验证。', 422);
+      }
+    };
     const guard: GuardService = {
+      async validateQuestion(state, signal) {
+        checkAbort(signal);
+        await ctx.responsePolicy.validate('', [], structuredClone(state), signal, 'ask_user');
+        checkAbort(signal);
+      },
+      async validateEvidence(citations, state, signal) {
+        checkAbort(signal);
+        validateCitations(citations, state);
+        const snapshot = structuredClone({ citations, state });
+        await ctx.responsePolicy.validate(
+          '',
+          snapshot.citations,
+          snapshot.state,
+          signal,
+          'final_answer',
+        );
+        checkAbort(signal);
+      },
       canStream: () => policies.size === 0 && ctx.responsePolicy.allowStreaming === true,
       register(policy) {
         if (policies.has(policy.name))
@@ -19,12 +49,18 @@ export const guardPlugin = {
       },
       async validate(answer, citations, state, signal, responseType = 'final_answer') {
         checkAbort(signal);
-        for (const citation of citations) {
-          const doc = state.retrievedDocuments.find(
-            (d) => d.id === citation.chunkId && d.documentId === citation.documentId,
+        validateCitations(citations, state);
+        const selectedPolicies = [...policies.values()];
+        for (const policy of selectedPolicies) {
+          checkAbort(signal);
+          const snapshot = structuredClone({ citations, state });
+          await policy.validate(
+            answer,
+            snapshot.citations,
+            snapshot.state,
+            signal,
+            responseType === 'scope_reply' ? 'ask_user' : responseType,
           );
-          if (!doc || doc.title !== citation.title || doc.source !== citation.source)
-            throw new AppError('INVALID_CITATION', '答案引用无法验证。', 422);
         }
         const response = structuredClone({ citations, state });
         await ctx.responsePolicy.validate(
@@ -34,12 +70,6 @@ export const guardPlugin = {
           signal,
           responseType,
         );
-        const selectedPolicies = [...policies.values()];
-        for (const policy of selectedPolicies) {
-          checkAbort(signal);
-          const snapshot = structuredClone({ citations, state });
-          await policy.validate(answer, snapshot.citations, snapshot.state, signal, responseType);
-        }
         checkAbort(signal);
       },
     };

@@ -40,17 +40,17 @@ describe('Agent ReAct runtime', () => {
   });
 
   it('blocks unexecuted business claims even when they are returned as a question', async () => {
-    const h = await setup({ SEED_KNOWLEDGE: 'false' });
+    const h = await setup();
     vi.spyOn(h.ctx.decision, 'decide').mockResolvedValue({
       type: 'ask_user',
       question: '工单已创建，编号 T1',
     });
     await expect(
-      h.ctx.agent.run({ conversationId: 'question-claim', message: 'hello', principal }),
+      h.ctx.agent.run({ conversationId: 'question-claim', message: 'E102', principal }),
     ).rejects.toMatchObject({ code: 'TOOL_INCONSISTENT' });
   });
 
-  it('allows genuine questions without evidence, including after retrieval', async () => {
+  it('applies industry policies to both questions and server scope replies', async () => {
     const h = await setup();
     const review = vi.fn();
     h.ctx.guard.register({ name: 'question-review', validate: review });

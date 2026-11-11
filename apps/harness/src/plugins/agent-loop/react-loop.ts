@@ -4,7 +4,7 @@ import type { AgentService } from '../../core/agent/agent.service.js';
 import type { AgentState, AgentInput } from '../../core/agent/agent.types.js';
 import type { StreamEvent } from '../../core/http/http.types.js';
 import type { AgentResult } from '@ava/protocol';
-import { decisionSchema } from '../../core/decision/decision.schema.js';
+import { decisionSchema, type AgentDecision } from '../../core/decision/decision.schema.js';
 import { AppError, publicError, checkAbort } from '../../core/errors.js';
 import { ToolAuditError } from '../../core/tools/tool-audit-error.js';
 import { canUseTool } from '../../core/tools/tool.types.js';
@@ -93,6 +93,37 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
           ? { ...observation, result: memoryResults.get(index) }
           : observation,
       );
+    const needsKnowledgeSearch = () =>
+      c.requireKnowledgeSearch &&
+      !state.toolCalls.some((call) => call.kind === 'retrieval' && call.status === 'completed') &&
+      !(
+        c.allowToolEvidence &&
+        state.observations.some(
+          (observation) =>
+            state.toolCalls.some(
+              (call) =>
+                call.tool === observation.tool &&
+                call.kind === undefined &&
+                call.status === 'completed',
+            ) && !('error' in Object(observation.result)),
+        )
+      );
+    const requiredKnowledgeSearch = (): AgentDecision => {
+      const search = ctx.tools.get('knowledge_search');
+      if (!search || !canUseTool(search, input.principal))
+        throw new AppError(
+          'KNOWLEDGE_SEARCH_REQUIRED',
+          '回答前需要成功检索知识库，当前无法执行检索。',
+          422,
+        );
+      if (state.toolCalls.some((call) => call.tool === search.name))
+        throw new AppError(
+          'KNOWLEDGE_SEARCH_FAILED',
+          '知识检索未成功，暂时无法确认，请稍后重试。',
+          502,
+        );
+      return { type: 'tool_call', tool: search.name, arguments: { query: input.message } };
+    };
     const lockKey = `conversation-lock:${input.conversationId}`;
     const signal = AbortSignal.any([
       lifetime.signal,
@@ -135,38 +166,76 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             const start = performance.now();
             phase = 'decision';
             phaseStart = start;
-            let decision = decisionSchema.parse(
-              await ctx.telemetry.span(
-                'decision.decide',
-                { run_id: state.runId, conversation_id: state.conversationId, step: state.step },
-                () =>
-                  ctx.decision.decide(
-                    structuredClone({
-                      message: input.message,
-                      goal: state.goal,
-                      intent: state.intent,
-                      entities: state.entities,
-                      availableTools: ctx.tools
-                        .list()
-                        .filter((tool) => canUseTool(tool, input.principal)),
-                      availableKnowledgeSources: ctx.knowledge.list(),
-                    }),
+            let decision: AgentDecision | undefined;
+            let rejectedDecisionCode: string | undefined;
+            let scopeReplyReason: string | undefined;
+            try {
+              if (
+                c.requireKnowledgeSearch &&
+                c.insufficientEvidenceReply &&
+                ctx.guard.validateQuestion &&
+                state.toolCalls.some(
+                  (call) => call.kind === 'retrieval' && call.status === 'completed',
+                )
+              ) {
+                try {
+                  await ctx.guard.validateQuestion(state, signal);
+                } catch (error) {
+                  if (!(error instanceof AppError) || error.code !== 'LOW_CONFIDENCE') throw error;
+                  decision = { type: 'ask_user', question: c.insufficientEvidenceReply };
+                  scopeReplyReason = error.code;
+                }
+              }
+              if (!decision)
+                decision = decisionSchema.parse(
+                  await ctx.telemetry.span(
+                    'decision.decide',
                     {
-                      ...structuredClone({
-                        runId: state.runId,
-                        conversationId: state.conversationId,
-                        step: state.step,
-                        recentMessages: recent.slice(0, -1),
-                        observations: modelObservations(),
-                        memory: [],
-                        summary,
-                        retrievedDocuments: state.retrievedDocuments,
-                      }),
-                      signal,
+                      run_id: state.runId,
+                      conversation_id: state.conversationId,
+                      step: state.step,
                     },
+                    () =>
+                      ctx.decision.decide(
+                        structuredClone({
+                          message: input.message,
+                          goal: state.goal,
+                          intent: state.intent,
+                          entities: state.entities,
+                          availableTools: ctx.tools
+                            .list()
+                            .filter((tool) => canUseTool(tool, input.principal)),
+                          availableKnowledgeSources: ctx.knowledge.list(),
+                        }),
+                        {
+                          ...structuredClone({
+                            runId: state.runId,
+                            conversationId: state.conversationId,
+                            step: state.step,
+                            recentMessages: recent.slice(0, -1),
+                            observations: modelObservations(),
+                            memory: [],
+                            summary,
+                            retrievedDocuments: state.retrievedDocuments,
+                          }),
+                          signal,
+                        },
+                      ),
                   ),
-              ),
-            );
+                );
+            } catch (error) {
+              checkAbort(signal);
+              // Citation hydration can reject a premature answer before the terminal gate below.
+              // Discard that answer and obtain evidence; do not accept or rewrite its citations.
+              if (
+                !(error instanceof AppError) ||
+                error.code !== 'INVALID_CITATION' ||
+                !needsKnowledgeSearch()
+              )
+                throw error;
+              decision = requiredKnowledgeSearch();
+              rejectedDecisionCode = error.code;
+            }
             checkAbort(signal);
             ctx.telemetry.log(
               {
@@ -179,44 +248,8 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             const proposedDecision = decision;
             // A terminal shortcut is not evidence. Route it through the normal audited tool path,
             // then let the next decision see the actual result. Never retry business tools here.
-            if (
-              c.requireKnowledgeSearch &&
-              decision.type !== 'tool_call' &&
-              !state.toolCalls.some(
-                (call) => call.kind === 'retrieval' && call.status === 'completed',
-              ) &&
-              !(
-                c.allowToolEvidence &&
-                state.observations.some(
-                  (observation) =>
-                    state.toolCalls.some(
-                      (call) =>
-                        call.tool === observation.tool &&
-                        call.kind === undefined &&
-                        call.status === 'completed',
-                    ) && !('error' in Object(observation.result)),
-                )
-              )
-            ) {
-              const search = ctx.tools.get('knowledge_search');
-              if (!search || !canUseTool(search, input.principal))
-                throw new AppError(
-                  'KNOWLEDGE_SEARCH_REQUIRED',
-                  '回答前需要成功检索知识库，当前无法执行检索。',
-                  422,
-                );
-              if (state.toolCalls.some((call) => call.tool === search.name))
-                throw new AppError(
-                  'KNOWLEDGE_SEARCH_FAILED',
-                  '知识检索未成功，暂时无法确认，请稍后重试。',
-                  502,
-                );
-              decision = {
-                type: 'tool_call',
-                tool: search.name,
-                arguments: { query: input.message },
-              };
-            }
+            if (decision.type !== 'tool_call' && needsKnowledgeSearch())
+              decision = requiredKnowledgeSearch();
             const kind =
               decision.type === 'tool_call' ? ctx.tools.get(decision.tool)?.kind : undefined;
             const recordedDecision =
@@ -226,11 +259,18 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
             await append('agent_decision', {
               ...recordedDecision,
               step: state.step,
-              ...(proposedDecision !== decision
-                ? {
-                    routing: { reason: 'knowledge_search_required', proposedDecision },
-                  }
-                : {}),
+              ...(scopeReplyReason
+                ? { routing: { reason: 'scope_reply', code: scopeReplyReason } }
+                : proposedDecision !== decision || rejectedDecisionCode
+                  ? {
+                      routing: {
+                        reason: 'knowledge_search_required',
+                        ...(rejectedDecisionCode
+                          ? { rejectedDecision: { code: rejectedDecisionCode } }
+                          : { proposedDecision }),
+                      },
+                    }
+                  : {}),
             });
             await append('execution_span', {
               phase,
@@ -247,7 +287,7 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
               let citations = decision.type === 'ask_user' ? [] : (decision.citations ?? []);
               let responseType: 'final_answer' | 'ask_user' =
                 decision.type === 'ask_user' ? 'ask_user' : 'final_answer';
-              let fallbackReason: string | undefined;
+              let fallbackReason: string | undefined = scopeReplyReason;
               const live =
                 decision.type === 'answer_ready' &&
                 c.streamAnswers === true &&
@@ -255,9 +295,18 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
                 !state.toolCalls.some((call) => call.kind !== 'retrieval');
               phase = 'guard';
               phaseStart = performance.now();
-              const validateAnswer = async () => {
+              const validateAnswer = async (evidenceOnly = false) => {
                 try {
-                  await ctx.guard.validate(answer, citations, state, signal, responseType);
+                  if (evidenceOnly && ctx.guard.validateEvidence)
+                    await ctx.guard.validateEvidence(citations, state, signal);
+                  else
+                    await ctx.guard.validate(
+                      answer,
+                      citations,
+                      state,
+                      signal,
+                      fallbackReason ? 'scope_reply' : responseType,
+                    );
                 } catch (error) {
                   if (
                     !(error instanceof AppError) ||
@@ -270,11 +319,11 @@ export function createAgentService(ctx: AgentDependencies, c: AgentConfig): Agen
                   citations = [];
                   responseType = 'ask_user';
                   fallbackReason = error.code;
-                  await ctx.guard.validate(answer, citations, state, signal, responseType);
+                  await ctx.guard.validate(answer, citations, state, signal, 'scope_reply');
                 }
               };
-              if (decision.type !== 'answer_ready' || live) {
-                await validateAnswer();
+              if (decision.type !== 'answer_ready' || live || ctx.guard.validateEvidence) {
+                await validateAnswer(decision.type === 'answer_ready' && !live);
                 checkAbort(signal);
                 await append('execution_span', {
                   phase,

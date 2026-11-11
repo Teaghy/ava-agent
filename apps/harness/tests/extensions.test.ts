@@ -37,7 +37,7 @@ const rules = {
 
 describe('Harness extension composition', () => {
   it('selects a custom decision before mounting the default provider', async () => {
-    const h = await setup({ providers: { decision: rules } });
+    const h = await setup({ preset: 'chat', providers: { decision: rules } });
     expect(h.ctx.registry.has(mainModelDecisionPlugin)).toBe(false);
     const model = vi.spyOn(h.ctx.model, 'structuredOutput');
     const result = await h.ctx.agent.run({ conversationId: 'custom', message: '退款', principal });
@@ -46,7 +46,7 @@ describe('Harness extension composition', () => {
   });
 
   it('runs a rule decision with no model service mounted', async () => {
-    const h = await setup({ providers: { decision: rules, model: false } });
+    const h = await setup({ preset: 'chat', providers: { decision: rules, model: false } });
     expect(h.ctx.get('model')).toBeUndefined();
     const result = await h.ctx.agent.run({
       conversationId: 'no-model',
@@ -294,7 +294,7 @@ describe('Extension execution constraints', () => {
   });
 
   it('rejects citations injected into a decision context instead of retrieved by a tool', async () => {
-    const h = await setup();
+    const h = await setup({ preset: 'chat' });
     vi.spyOn(h.ctx.decision, 'decide').mockImplementation(async (_input, context) => {
       context.retrievedDocuments.push({
         id: 'injected:1',
@@ -460,30 +460,33 @@ describe('Extension execution constraints', () => {
 
   it('counts a custom retrieval tool against the retrieval budget', async () => {
     let calls = 0;
-    const h = await createHarness(loadConfig({ NODE_ENV: 'test', MAX_RAG_SEARCHES: '1' }), {
-      quiet: true,
-      plugins: [
-        {
-          name: 'custom-search',
-          inject: ['tools'],
-          apply(ctx) {
-            ctx.effect(() =>
-              ctx.tools.register({
-                name: 'custom_search',
-                description: '自研检索',
-                permission: 'READ',
-                kind: 'retrieval',
-                inputSchema: z.object({}).strict(),
-                async execute() {
-                  calls++;
-                  return { documents: [] };
-                },
-              }),
-            );
+    const h = await createHarness(
+      loadConfig({ NODE_ENV: 'test', APP_PRESET: 'chat', MAX_RAG_SEARCHES: '1' }),
+      {
+        quiet: true,
+        plugins: [
+          {
+            name: 'custom-search',
+            inject: ['tools'],
+            apply(ctx) {
+              ctx.effect(() =>
+                ctx.tools.register({
+                  name: 'custom_search',
+                  description: '自研检索',
+                  permission: 'READ',
+                  kind: 'retrieval',
+                  inputSchema: z.object({}).strict(),
+                  async execute() {
+                    calls++;
+                    return { documents: [] };
+                  },
+                }),
+              );
+            },
           },
-        },
-      ],
-    });
+        ],
+      },
+    );
     harnesses.push(h);
     vi.spyOn(h.ctx.decision, 'decide').mockResolvedValue({
       type: 'tool_call',

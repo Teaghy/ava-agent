@@ -349,7 +349,9 @@ export async function createHarness(config: Config, options: HarnessOptions = {}
           insufficientEvidenceReply:
             presetName === 'customer-service'
               ? '我目前的服务范围是产品咨询、使用指导和售后支持，暂时无法为这个问题提供可靠答复。你可以补充产品型号或具体业务问题；如需进一步确认，请联系人工客服。'
-              : undefined,
+              : presetName === 'knowledge'
+                ? '当前知识库没有足够相关的依据来回答这个问题。请补充与知识库相关的具体问题，或联系维护人员。'
+                : undefined,
           isPaused: () => pluginManager.changing,
         });
         pluginManager.attachAgent(fiber);
